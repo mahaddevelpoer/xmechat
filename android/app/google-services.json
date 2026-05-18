@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "53788052394",
+    "project_id": "trustme-11",
+    "storage_bucket": "trustme-11.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:53788052394:android:84a01b2b8f9a058b51f9d3",
+        "android_client_info": {
+          "package_name": "com.xmechat.dev.xmechat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8s7nnEyIp_DZcI27wahxlHFKjo5EZTSc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,83 @@
+name: xmechat
+description: "A complete WhatsApp-like messaging application"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Supabase
+  supabase_flutter: ^2.6.0
+
+  # State Management
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # UI
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  emoji_picker_flutter: ^2.2.0
+  photo_view: ^0.15.0
+  image_picker: ^1.1.2
+  file_picker: ^8.1.2
+  file_selector: ^1.0.3
+  flutter_svg: ^2.0.10+1
+  timeago: ^3.7.0
+  badges: ^3.1.2
+  lottie: ^3.1.2
+  pinput: ^5.0.0
+
+  # Media
+  record: ^5.1.0
+  just_audio: ^0.9.38
+  video_player: ^2.9.1
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  http: ^1.2.2
+  mime: ^1.0.5
+
+  # WebRTC (Video/Voice Calls)
+  flutter_webrtc: ^0.12.7
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Utilities
+  uuid: ^4.4.0
+  intl: ^0.19.0
+  share_plus: ^10.0.2
+  url_launcher: ^6.3.0
+  encrypt: ^5.0.3
+  geolocator: ^13.0.2
+  geocoding: ^3.0.0
+
+  # Notifications
+  firebase_core: ^3.1.0
+  firebase_messaging: ^15.1.0
+  flutter_local_notifications: ^18.0.1
+
+  # Windows desktop
+  bitsdojo_window: ^0.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.12
+  riverpod_generator: ^2.4.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/animations/

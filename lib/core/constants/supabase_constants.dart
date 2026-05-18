@@ -3,10 +3,10 @@
 
 class SupabaseConstants {
   // Your Supabase Project URL
-  static const String supabaseUrl = 'https://YOUR_PROJECT_ID.supabase.co';
+  static const String supabaseUrl = 'https://wdislbdftnwmaexqtfmn.supabase.co';
 
   // Your Supabase Anon/Public Key
-  static const String supabaseAnonKey = 'YOUR_ANON_KEY_HERE';
+  static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkaXNsYmRmdG53bWFleHF0Zm1uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1ODY0MzksImV4cCI6MjA4NTE2MjQzOX0.hSUYRs4scWmUNZGK0slHeX9t--Of5CZclAhoCRbcXmc';
 
   // Storage Bucket Names
   static const String avatarsBucket = 'avatars';

@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/auth_service.dart';
 import '../services/broadcast_service.dart';
 import '../services/chat_service.dart';
+import '../services/encryption_service.dart';
 import '../services/group_service.dart';
 import '../services/status_service.dart';
 import '../services/webrtc_service.dart';
@@ -167,4 +168,9 @@ final fontSizeProvider = Provider<double>((ref) {
 // ── Broadcast Lists ────────────────────────────
 final broadcastListsProvider = FutureProvider.autoDispose<List<BroadcastListModel>>((ref) async {
   return ref.read(broadcastServiceProvider).fetchMyLists();
+});
+
+final encryptionServiceProvider = Provider<EncryptionService>((ref) {
+  final uid = ref.watch(currentUserIdProvider);
+  return EncryptionService(uid);
 });

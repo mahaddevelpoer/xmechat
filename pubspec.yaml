@@ -2,7 +2,7 @@ name: xmechat
 description: "A complete WhatsApp-like messaging application"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
   sdk: ^3.9.2
@@ -57,6 +57,8 @@ dependencies:
   share_plus: ^10.0.2
   url_launcher: ^6.3.0
   encrypt: ^5.0.3
+  pointycastle: ^3.6.2
+  asn1lib: ^1.5.0
   geolocator: ^13.0.2
   geocoding: ^3.0.0
 
@@ -95,3 +97,11 @@ flutter_launcher_icons:
     generate: true
     image_path: "assets/images/app_icon.png"
     icon_size: 48
+
+msix_config:
+  display_name: XmeChat
+  publisher_display_name: XmeChat
+  identity_name: com.xmechat.app
+  msix_version: 2.0.0.0
+  logo_path: assets/images/app_icon.png
+  capabilities: internetClient, microphone, webcam

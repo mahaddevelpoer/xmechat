@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../core/constants/supabase_constants.dart';
+import 'encryption_service.dart';
 
 class AuthService {
   final _client = Supabase.instance.client;
@@ -14,7 +15,12 @@ class AuthService {
 
   // ── Sign Up ───────────────────────────────────────
   Future<AuthResponse> signUp({required String email, required String password}) async {
-    return await _client.auth.signUp(email: email, password: password);
+    final res = await _client.auth.signUp(email: email, password: password);
+    if (res.session?.user != null) {
+      final uid = res.session!.user.id;
+      await EncryptionService(uid).generateKeyPair();
+    }
+    return res;
   }
 
   // ── Sign In ───────────────────────────────────────
@@ -63,7 +69,11 @@ class AuthService {
 
   // ── Create/Update Profile ─────────────────────────
   Future<void> upsertProfile(UserModel user) async {
-    await _client.from(SupabaseConstants.usersTable).upsert(user.toMap());
+    final publicKey = await EncryptionService(currentUserId).getPublicKey();
+    await _client.from(SupabaseConstants.usersTable).upsert({
+      ...user.toMap(),
+      if (publicKey != null) 'public_key': publicKey,
+    });
   }
 
   // ── Update Profile Picture ────────────────────────

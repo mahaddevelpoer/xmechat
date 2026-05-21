@@ -51,6 +51,7 @@ create table users (
     is_private    boolean default false,
     ringtone_url  varchar default '',
     status_privacy varchar default 'everyone',
+    public_key    text default '',
     created_at    timestamp with time zone default now()
 );
 
@@ -607,7 +608,7 @@ create policy "otp update own email" on otp_codes for update
 create or replace function public.handle_new_user() 
 returns trigger as '
 begin
-  insert into public.users (id, email, name, phone_info, bio, avatar_url, ringtone_url, status_privacy)
+  insert into public.users (id, email, name, phone_info, bio, avatar_url, ringtone_url, status_privacy, public_key)
   values (
     new.id, 
     new.email, 
@@ -616,7 +617,8 @@ begin
     ''Friends Forever'',
     '''',
     '''',
-    ''everyone''
+    ''everyone'',
+    ''''
   )
   on conflict (id) do nothing;
   return new;

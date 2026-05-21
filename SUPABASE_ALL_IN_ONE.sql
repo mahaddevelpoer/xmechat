@@ -49,6 +49,8 @@ create table users (
     is_online     boolean default false,
     push_token    varchar,
     is_private    boolean default false,
+    ringtone_url  varchar default '',
+    status_privacy varchar default 'everyone',
     created_at    timestamp with time zone default now()
 );
 
@@ -117,6 +119,7 @@ create table reactions (
 
 create index idx_reactions_message on reactions(message_id);
 create index idx_reactions_user on reactions(user_id);
+create unique index uniq_reactions_message_user on reactions(message_id, user_id);
 
 -- Groups Table
 create table groups (
@@ -540,14 +543,16 @@ create policy "otp update own email" on otp_codes for update
 create or replace function public.handle_new_user() 
 returns trigger as '
 begin
-  insert into public.users (id, email, name, phone_info, bio, avatar_url)
+  insert into public.users (id, email, name, phone_info, bio, avatar_url, ringtone_url, status_privacy)
   values (
     new.id, 
     new.email, 
     coalesce(new.raw_user_meta_data->>''name'', split_part(new.email, ''@'', 1)),
     coalesce(new.raw_user_meta_data->>''phone_info'', ''''),
     ''Friends Forever'',
-    ''''
+    '''',
+    '''',
+    ''everyone''
   )
   on conflict (id) do nothing;
   return new;

@@ -384,6 +384,14 @@ class ChatService {
     }
   }
 
+  Future<void> editMessage(String messageId, String newText) async {
+    await _db
+        .from(SupabaseConstants.messagesTable)
+        .update({'text': newText})
+        .eq('id', messageId)
+        .eq('sender_id', _uid);
+  }
+
   Future<void> toggleStar(String messageId, bool star) async {
     if (star) {
       await _db.from(SupabaseConstants.starredMessagesTable).insert({

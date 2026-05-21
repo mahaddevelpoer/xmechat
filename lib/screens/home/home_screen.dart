@@ -10,7 +10,6 @@ import '../../providers/providers.dart';
 import '../../widgets/common/user_avatar.dart';
 import 'home_tabs/chats_tab.dart';
 import 'home_tabs/status_tab.dart';
-import 'home_tabs/calls_tab.dart';
 import '../chat/private_chat_screen.dart';
 import '../chat/group_chat_screen.dart';
 
@@ -30,7 +29,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this)
+    _tabController = TabController(length: 2, vsync: this)
       ..addListener(() {
         if (_tabController.index != _currentIndex) {
           ref.read(searchQueryProvider.notifier).state = '';
@@ -139,7 +138,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final navItems = [
       _NavItem(Icons.chat_bubble_outline, 'Messages', 0),
       _NavItem(Icons.auto_awesome, 'Status', 1),
-      _NavItem(Icons.group_outlined, 'People', 2),
+      _NavItem(Icons.contacts_outlined, 'People', 2),
       _NavItem(Icons.settings_outlined, 'Settings', 3),
     ];
 
@@ -251,6 +250,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               final i = entry.value;
               final isActive = _currentIndex == i.index;
               final isSettings = i.index == 3;
+              final isPeople = i.index == 2;
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 child: Material(
@@ -260,6 +260,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     onTap: () {
                       if (isSettings) {
                         context.push('/settings');
+                      } else if (isPeople) {
+                        context.push('/contacts');
                       } else {
                         _tabController.animateTo(i.index);
                       }
@@ -946,7 +948,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [ChatsTab(), StatusTab(), CallsTab()],
+        children: const [ChatsTab(), StatusTab()],
       ),
       bottomNavigationBar: _buildMobileBottomNav(),
     );
@@ -956,8 +958,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final items = [
       (Icons.chat_bubble_outline, 'Chats'),
       (Icons.auto_awesome, 'Status'),
-      (Icons.group_outlined, 'People'),
-      (Icons.account_circle_outlined, 'Profile'),
+      (Icons.contacts_outlined, 'People'),
+      (Icons.settings_outlined, 'Profile'),
     ];
 
     return ClipRRect(
@@ -983,7 +985,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   final isActive = _currentIndex == idx;
                   return GestureDetector(
                     onTap: () {
-                      if (idx == 3) {
+                      if (idx == 2) {
+                        context.push('/contacts');
+                      } else if (idx == 3) {
                         context.push('/settings');
                       } else {
                         _tabController.animateTo(idx);

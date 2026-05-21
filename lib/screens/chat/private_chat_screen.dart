@@ -46,6 +46,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
   final bool _showTyping = false;
   String _wallpaperPath = '';
   MessageModel? _replyTo;
+  MessageModel? _editingMessage;
   List<MessageModel> _messages = [];
   UserModel? _otherUser;
   String? _recordPath;
@@ -306,6 +307,29 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     _scrollToBottom();
   }
 
+  Future<void> _editMessage() async {
+    final text = _textCtrl.text.trim();
+    if (text.isEmpty || _editingMessage == null) return;
+    final msgId = _editingMessage!.id;
+    try {
+      await ref.read(chatServiceProvider).editMessage(msgId, text);
+      setState(() {
+        final idx = _messages.indexWhere((m) => m.id == msgId);
+        if (idx >= 0) {
+          _messages[idx] = _messages[idx].copyWith(text: text);
+        }
+        _editingMessage = null;
+      });
+      _textCtrl.clear();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not edit message: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _sendImage({bool camera = false}) async {
     if (_otherUser == null) return;
     setState(() => _uploading = true);
@@ -547,6 +571,16 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
           setState(() => _replyTo = msg);
           Navigator.pop(context);
         },
+        onEdit: msg.senderId == ref.read(authServiceProvider).currentUserId && msg.type == MessageType.text
+            ? () {
+                Navigator.pop(context);
+                setState(() => _editingMessage = msg);
+                _textCtrl.text = msg.text;
+                _textCtrl.selection = TextSelection.fromPosition(
+                  TextPosition(offset: msg.text.length),
+                );
+              }
+            : null,
         onCopy: () {
           Clipboard.setData(ClipboardData(text: msg.text));
           Navigator.pop(context);
@@ -628,6 +662,41 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                     ),
                   ),
                 ),
+              if (_editingMessage != null)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withAlpha(30),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.secondary.withAlpha(80)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.edit, size: 16, color: AppColors.secondary),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Editing message',
+                          style: TextStyle(
+                            color: AppColors.secondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _editingMessage = null;
+                            _textCtrl.clear();
+                          });
+                        },
+                        child: const Icon(Icons.close, size: 18, color: AppColors.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
               if (_showEmoji)
                 SizedBox(
                   height: 280,
@@ -675,7 +744,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                         Icons.arrow_back,
                         color: AppColors.onSurface,
                       ),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () => context.pop(),
                     ),
                     GestureDetector(
                       onTap: () => context.push('/chat-info/${widget.chatId}'),
@@ -992,7 +1061,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                           size: 26,
                         ),
                         onPressed: hasText
-                            ? _sendText
+                            ? (_editingMessage != null ? _editMessage : _sendText)
                             : (_isRecording ? _stopRecording : _startRecording),
                       ),
                     );
@@ -1507,7 +1576,7 @@ class _MessageContent extends StatelessWidget {
         return _buildImage(context);
 
       case MessageType.audio:
-        return _VoiceMessageBubble(url: message.mediaUrl, isMe: isMe);
+        return _VoiceMessageBubble(key: ValueKey('voice-${message.id}'), url: message.mediaUrl, isMe: isMe);
 
       case MessageType.video:
         return _buildVideo();
@@ -1639,34 +1708,55 @@ class _MessageContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: CachedNetworkImage(
-            imageUrl: message.mediaUrl,
-            width: 240,
-            height: 180,
-            fit: BoxFit.cover,
-            placeholder: (_, __) => Container(
-              width: 240,
-              height: 180,
-              color: isMe
-                  ? AppColors.surface.withAlpha(30)
-                  : AppColors.surface.withAlpha(60),
-              child: const Center(
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: AppColors.secondary,
+        GestureDetector(
+          onTap: () => showDialog(
+            context: context,
+            builder: (_) => Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                backgroundColor: Colors.black,
+                iconTheme: const IconThemeData(color: Colors.white),
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+              body: Center(
+                child: InteractiveViewer(
+                  child: CachedNetworkImage(imageUrl: message.mediaUrl),
                 ),
               ),
             ),
-            errorWidget: (_, __, ___) => Container(
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: CachedNetworkImage(
+              imageUrl: message.mediaUrl,
               width: 240,
               height: 180,
-              color: AppColors.surface.withAlpha(40),
-              child: const Center(
-                child: Icon(
-                  Icons.broken_image_outlined,
-                  color: AppColors.outline,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => Container(
+                width: 240,
+                height: 180,
+                color: isMe
+                    ? AppColors.surface.withAlpha(30)
+                    : AppColors.surface.withAlpha(60),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.secondary,
+                  ),
+                ),
+              ),
+              errorWidget: (_, __, ___) => Container(
+                width: 240,
+                height: 180,
+                color: AppColors.surface.withAlpha(40),
+                child: const Center(
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: AppColors.outline,
+                  ),
                 ),
               ),
             ),
@@ -1797,7 +1887,7 @@ class _MessageContent extends StatelessWidget {
 class _VoiceMessageBubble extends StatefulWidget {
   final String url;
   final bool isMe;
-  const _VoiceMessageBubble({required this.url, required this.isMe});
+  const _VoiceMessageBubble({super.key, required this.url, required this.isMe});
 
   @override
   State<_VoiceMessageBubble> createState() => _VoiceMessageBubbleState();
@@ -1843,12 +1933,21 @@ class _VoiceMessageBubbleState extends State<_VoiceMessageBubble>
       setState(() => _loading = true);
       try {
         await _player.setUrl(widget.url);
+        await _player.play();
+        _waveCtrl.repeat();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not play audio: $e')),
+          );
+        }
       } finally {
         if (mounted) setState(() => _loading = false);
       }
+    } else {
+      await _player.play();
+      _waveCtrl.repeat();
     }
-    await _player.play();
-    _waveCtrl.repeat();
   }
 
   String get _remaining {
@@ -2077,6 +2176,7 @@ class _MessageActionsSheet extends StatelessWidget {
   final MessageModel message;
   final String myId;
   final VoidCallback onReply, onCopy, onStar;
+  final VoidCallback? onEdit;
   final void Function(bool) onDelete;
   final void Function(String) onReact;
 
@@ -2088,6 +2188,7 @@ class _MessageActionsSheet extends StatelessWidget {
     required this.onStar,
     required this.onDelete,
     required this.onReact,
+    this.onEdit,
   });
 
   @override
@@ -2136,6 +2237,12 @@ class _MessageActionsSheet extends StatelessWidget {
           ),
           onTap: onReply,
         ),
+        if (onEdit != null)
+          ListTile(
+            leading: const Icon(Icons.edit, color: AppColors.onSurfaceVariant),
+            title: const Text('Edit', style: TextStyle(color: AppColors.onSurface)),
+            onTap: onEdit!,
+          ),
         if (message.type == MessageType.text)
           ListTile(
             leading: const Icon(Icons.copy, color: AppColors.onSurfaceVariant),

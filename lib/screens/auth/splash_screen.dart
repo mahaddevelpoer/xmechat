@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -45,16 +46,47 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       body: Center(
         child: FadeTransition(
           opacity: _fade,
           child: ScaleTransition(
             scale: _scale,
-            child: Icon(
-              Icons.chat_bubble_outline,
-              size: 80,
-              color: Colors.grey.shade300,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 160,
+                  height: 160,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      center: Alignment.center,
+                      radius: 0.6,
+                      colors: [
+                        AppColors.secondary.withAlpha(30),
+                        AppColors.secondary.withAlpha(10),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.chat_bubble_outline,
+                    size: 80,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Deep Space',
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

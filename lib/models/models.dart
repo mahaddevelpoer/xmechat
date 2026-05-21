@@ -295,9 +295,10 @@ class MessageModel {
     bool? deletedForReceiver,
     bool? deletedForEveryone,
     bool? viewOnceOpened,
+    String? text,
   }) => MessageModel(
     id: id, chatId: chatId, groupId: groupId, senderId: senderId,
-    receiverId: receiverId, text: text, type: type, mediaUrl: mediaUrl,
+    receiverId: receiverId, text: text ?? this.text, type: type, mediaUrl: mediaUrl,
     fileName: fileName, fileSize: fileSize, duration: duration,
     replyTo: replyTo, replyPreview: replyPreview, isForwarded: isForwarded,
     isStarred: isStarred ?? this.isStarred, isViewOnce: isViewOnce,

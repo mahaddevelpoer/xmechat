@@ -37,7 +37,7 @@ dependencies:
   pinput: ^5.0.0
 
   # Media
-  record: ^5.1.0
+  record: ^6.2.0
   just_audio: ^0.9.38
   video_player: ^2.9.1
   path_provider: ^2.1.4

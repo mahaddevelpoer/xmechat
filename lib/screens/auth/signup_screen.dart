@@ -26,7 +26,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       await ref.read(authServiceProvider).signUp(
         email: _email.text.trim(), password: _pass.text);
       if (!mounted) return;
-      context.go('/profile-setup');
+      context.go('/verify-email', extra: _email.text.trim());
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

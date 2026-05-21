@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
@@ -27,7 +28,7 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 4, vsync: this);
     _loadData();
   }
 
@@ -52,9 +53,12 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
     final user = await chatService.getUserById(otherId);
 
     if (!mounted) return;
+    final starred = await ref.read(chatServiceProvider).fetchStarredMessages(widget.chatId);
+    if (!mounted) return;
     setState(() {
       _otherUser = user;
       _messages = msgs;
+      _starredMessages = starred;
       _loading = false;
       _disappearTimer = chat.disappearTimer;
     });
@@ -72,6 +76,8 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
           m.type == MessageType.text &&
           (m.text.contains('http://') || m.text.contains('https://')))
       .toList();
+
+  List<MessageModel> _starredMessages = [];
 
   Future<void> _setDisappearTimer(int seconds) async {
     final supabase = Supabase.instance.client;
@@ -156,6 +162,7 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
                     Tab(text: 'Media'),
                     Tab(text: 'Docs'),
                     Tab(text: 'Links'),
+                    Tab(text: 'Starred'),
                   ],
                 ),
               ),
@@ -191,6 +198,7 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
                 _buildMediaGrid(),
                 _buildDocsList(),
                 _buildLinksList(),
+                _buildStarredList(),
               ],
             ),
           ),
@@ -377,6 +385,62 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
     );
   }
 
+  Widget _buildStarredList() {
+    if (_starredMessages.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.star_outline, size: 60, color: AppColors.textHint),
+            SizedBox(height: 12),
+            Text('No starred messages', style: TextStyle(color: AppColors.textHint)),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: _starredMessages.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+      itemBuilder: (ctx, i) {
+        final msg = _starredMessages[i];
+        return ListTile(
+          leading: Container(
+            width: 48, height: 48,
+            decoration: BoxDecoration(
+                color: AppColors.sentBubble,
+                borderRadius: BorderRadius.circular(8)),
+            child: Icon(
+              msg.type == MessageType.image
+                  ? Icons.image
+                  : msg.type == MessageType.video
+                      ? Icons.videocam
+                      : msg.type == MessageType.document
+                          ? Icons.description
+                          : Icons.message,
+              color: AppColors.primaryGreen,
+            ),
+          ),
+          title: Text(
+            msg.type == MessageType.text
+                ? msg.text
+                : msg.fileName.isNotEmpty
+                    ? msg.fileName
+                    : msg.type.name,
+            maxLines: 2, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          subtitle: Text(
+            _formatDate(msg.createdAt),
+            style: const TextStyle(fontSize: 12, color: AppColors.textHint),
+          ),
+          onTap: msg.type == MessageType.image || msg.type == MessageType.video
+              ? () => _openFullScreen(msg)
+              : null,
+        );
+      },
+    );
+  }
+
   void _openFullScreen(MessageModel msg) {
     Navigator.push(
       context,
@@ -423,10 +487,37 @@ class _TimerOption extends StatelessWidget {
   }
 }
 
-class _FullScreenMedia extends StatelessWidget {
+class _FullScreenMedia extends StatefulWidget {
   final String url;
   final bool isVideo;
   const _FullScreenMedia({required this.url, required this.isVideo});
+
+  @override
+  State<_FullScreenMedia> createState() => _FullScreenMediaState();
+}
+
+class _FullScreenMediaState extends State<_FullScreenMedia> {
+  VideoPlayerController? _videoCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isVideo) {
+      _videoCtrl = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      _videoCtrl!.initialize().then((_) {
+        if (mounted) {
+          _videoCtrl!.play();
+          setState(() {});
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoCtrl?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -439,18 +530,42 @@ class _FullScreenMedia extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.download_outlined, color: Colors.white),
             onPressed: () async {
-              final uri = Uri.tryParse(url);
+              final uri = Uri.tryParse(widget.url);
               if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
             },
           ),
         ],
       ),
       body: Center(
-        child: isVideo
-            ? const Icon(Icons.play_circle_fill, color: Colors.white, size: 80)
+        child: widget.isVideo
+            ? (_videoCtrl != null && _videoCtrl!.value.isInitialized
+                ? GestureDetector(
+                    onTap: () {
+                      if (_videoCtrl!.value.isPlaying) {
+                        _videoCtrl!.pause();
+                      } else {
+                        _videoCtrl!.play();
+                      }
+                      setState(() {});
+                    },
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: _videoCtrl!.value.aspectRatio,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            VideoPlayer(_videoCtrl!),
+                            if (!_videoCtrl!.value.isPlaying)
+                              const Icon(Icons.play_circle_fill, color: Colors.white, size: 80),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                : const CircularProgressIndicator(color: Colors.white))
             : InteractiveViewer(
                 child: CachedNetworkImage(
-                  imageUrl: url,
+                  imageUrl: widget.url,
                   fit: BoxFit.contain,
                   placeholder: (_, __) => const CircularProgressIndicator(color: Colors.white),
                   errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 60),

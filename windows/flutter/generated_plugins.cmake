@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   firebase_core
   flutter_webrtc
   geolocator_windows
+  just_audio_windows
   local_notifier
   permission_handler_windows
   record_windows

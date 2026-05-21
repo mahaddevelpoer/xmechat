@@ -22,7 +22,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     super.initState();
     _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
     _fade = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
-    _scale = Tween<double>(begin: 0.6, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut));
+    _scale = Tween<double>(begin: 0.8, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
     _ctrl.forward();
     _navigate();
   }
@@ -30,14 +30,23 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   Future<void> _navigate() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    final user = Supabase.instance.client.auth.currentUser;
+    final session = Supabase.instance.client.auth.currentSession;
+    final user = session?.user ?? Supabase.instance.client.auth.currentUser;
     if (user == null) {
       context.go('/login');
-    } else {
-      final hasProfile = await ref.read(authServiceProvider).hasProfile();
-      if (!mounted) return;
-      context.go(hasProfile ? '/home' : '/profile-setup');
+      return;
     }
+    try {
+      final refresh = await Supabase.instance.client.auth.refreshSession();
+      if (refresh.session == null && mounted) {
+        context.go('/login');
+        return;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    final hasProfile = await ref.read(authServiceProvider).hasProfile();
+    if (!mounted) return;
+    context.go(hasProfile ? '/home' : '/profile-setup');
   }
 
   @override

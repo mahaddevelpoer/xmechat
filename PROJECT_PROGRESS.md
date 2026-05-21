@@ -178,34 +178,39 @@ File: `lib/services/xmechat_root.dart`
 
 ---
 
-## 🔜 Next (Phase 4) — Planned Order (Strict)
+---
 
-### Step 4D — Mandatory Profile on First Login
-- After email verification → forced profile setup
-- Name required (min 2 chars)
-- Photo required
-- Phone optional (text only)
-- Save to `users` table then home
+## ✅ Completed (Phase 4D — 4H)
 
-### Step 4E — Email Verification with 6-digit OTP
-- Signup ke baad code screen (6 boxes)
-- Verify with `supabase.auth.verifyOTP(... OtpType.signup)`
+### Step 4D — Mandatory Profile on First Login ✅
+- Profile setup screen exists with name (min 2), photo (required), phone (optional), bio
+- Splash screen routes to `/profile-setup` if no profile
+- After signup → email verification → profile setup → home
+
+### Step 4E — Email Verification with 6-digit OTP ✅
+- 6-box OTP UI with auto-advance
+- Verify via `supabase.auth.verifyOTP(email, token, OtpType.signup)`
 - Resend with 60 sec cooldown
-- Expire 10 min
 
-### Step 4F — Working Settings
-- Profile settings (name/photo/phone update)
-- Notification settings toggles (shared_preferences)
-- Chat settings (wallpaper/font size/enter key)
-- Account (change password/delete/logout)
+### Step 4F — Working Settings ✅
+- Profile settings (name/photo/phone/bio update via EditProfileScreen)
+- Notification toggles (messages, calls) via shared_preferences
+- Chat settings (font size slider, enter-to-send toggle, theme toggle, per-chat wallpaper)
+- Account (change password, delete account, logout, blocked contacts, broadcast lists)
+- Privacy (online status, read receipts, last seen)
+- Media (default store, ringtone, notification sound)
 
-### Step 4G — Media Visibility
-- Contact info: media grid, documents list, links list, starred
-- photo_view viewer + video player + download
+### Step 4G — Media Visibility ✅
+- ChatInfoScreen with tabs: Media grid (images/videos), Documents list, Links list, Starred messages
+- Full-screen media viewer: pinch-to-zoom images + video player (play/pause) + download
 
-### Step 4H — Responsive Layout + Animations
-- Desktop/tablet/mobile layouts
-- Required transitions/animations list
+### Step 4H — Responsive Layout + Animations ✅
+- Desktop layout (sidebar 288px + inline right-panel chat) and mobile layout (TabBarView + bottom nav)
+- Calls tab wired in mobile bottom nav
+- Responsive breakpoint at 900px
+- Custom fade page transitions via GoRouter `pageBuilder` + `CustomTransitionPage`
+- Glassmorphic UI with `BackdropFilter` blur throughout
+- Shimmer loading, AnimatedContainer hover effects, splash FadeTransition/ScaleTransition
 
 ---
 

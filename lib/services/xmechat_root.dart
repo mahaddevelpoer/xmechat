@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -33,6 +34,7 @@ class XmeChatRoot {
 
   Timer? _fallbackTimer;
   Timer? _disappearTimer;
+  Timer? _pingTimer;
   final Set<String> _processedNotificationIds = {};
   DateTime? _lastPollTime;
 
@@ -64,6 +66,9 @@ class XmeChatRoot {
 
   Future<void> detachForLogout() async {
     _pendingNav.clear();
+    _initialized = false;
+    _uiReady = false;
+    _activeIncomingCallId = null;
     await _disposeRealtime();
   }
 
@@ -79,6 +84,14 @@ class XmeChatRoot {
       final userId = event.session?.user.id;
       if (userId == null || userId.isEmpty) {
         unawaited(_disposeRealtime());
+        // Force navigate to login when signed out
+        if (event.event == AuthChangeEvent.signedOut) {
+          _navigateOrQueue(() {
+            final ctx = rootNavigatorKey.currentContext;
+            if (ctx == null) return;
+            GoRouter.of(ctx).go('/login');
+          });
+        }
       } else {
         unawaited(_attachRealtimeForUser(userId));
       }
@@ -135,6 +148,11 @@ class XmeChatRoot {
 
     _disappearTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       unawaited(_chatService.deleteExpiredMessages());
+    });
+
+    // Keep realtime connection alive with ping every 25 seconds
+    _pingTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+      try { _supabase.realtime.setAuth(''); } catch (_) {}
     });
 
     // ── Private messages INSERT (new message) ────────────────────────────────
@@ -288,9 +306,9 @@ class XmeChatRoot {
             });
           },
         );
-      } else {
-        debugPrint('XmeChatRoot 📩 New message from $senderName: $preview');
       }
+      // Always show in-app notification (visible when app is focused)
+      _showInAppNotification(senderName, preview);
     } catch (e) {
       debugPrint('XmeChatRoot: message notification error: $e');
     }
@@ -383,11 +401,33 @@ class XmeChatRoot {
         );
       }
 
-      // Also try to show popup immediately (brings app to front)
       _showIncomingCallPopup(callModel);
     } catch (e) {
       debugPrint('XmeChatRoot: call notification error: $e');
     }
+  }
+
+  // Show top-right in-app notification for new messages
+  void _showInAppNotification(String title, String body) {
+    _navigateOrQueue(() {
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx == null) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Text('$title: $body', maxLines: 2, overflow: TextOverflow.ellipsis),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(
+            top: 8,
+            left: 8,
+            right: 8,
+            bottom: MediaQuery.of(ctx).size.height - 120,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    });
   }
 
   void _showIncomingCallPopup(CallModel call) {
@@ -530,6 +570,8 @@ class XmeChatRoot {
     _fallbackTimer = null;
     _disappearTimer?.cancel();
     _disappearTimer = null;
+    _pingTimer?.cancel();
+    _pingTimer = null;
     _processedNotificationIds.clear();
     _lastPollTime = null;
 

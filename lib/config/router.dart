@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -32,9 +33,21 @@ import '../screens/broadcast/create_broadcast_screen.dart';
 import '../screens/broadcast/broadcast_chat_screen.dart';
 import '../models/models.dart';
 
+Page<T> _fadePage<T>(Widget child) {
+  return CustomTransitionPage<T>(
+    child: child,
+    transitionsBuilder: (_, animation, __, child) => FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+      child: child,
+    ),
+  );
+}
+
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
-  final user = authState.valueOrNull?.session?.user ?? Supabase.instance.client.auth.currentUser;
+  final session = authState.valueOrNull?.session;
+  final user = session?.user ?? Supabase.instance.client.auth.currentUser;
+  final loggedIn = user != null;
   return GoRouter(
     initialLocation: '/',
     navigatorKey: rootNavigatorKey,
@@ -43,33 +56,35 @@ final routerProvider = Provider<GoRouter>((ref) {
           state.matchedLocation.startsWith('/signup') ||
           state.matchedLocation.startsWith('/forgot') ||
           state.matchedLocation == '/';
-      if (user == null && !isAuthRoute) return '/login';
+      final isSplash = state.matchedLocation == '/';
+      if (!loggedIn && !isAuthRoute && !isSplash) return '/login';
+      if (loggedIn && isAuthRoute && !isSplash) return '/home';
       return null;
     },
     routes: [
-      GoRoute(path: '/', builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/signup', builder: (_, __) => const SignupScreen()),
-      GoRoute(path: '/forgot-password', builder: (_, __) => const ForgotPasswordScreen()),
+      GoRoute(path: '/', pageBuilder: (_, __) => _fadePage(const SplashScreen())),
+      GoRoute(path: '/login', pageBuilder: (_, __) => _fadePage(const LoginScreen())),
+      GoRoute(path: '/signup', pageBuilder: (_, __) => _fadePage(const SignupScreen())),
+      GoRoute(path: '/forgot-password', pageBuilder: (_, __) => _fadePage(const ForgotPasswordScreen())),
       GoRoute(
         path: '/verify-email',
-        builder: (_, state) => EmailVerificationScreen(email: state.extra as String? ?? ''),
+        pageBuilder: (_, state) => _fadePage(EmailVerificationScreen(email: state.extra as String? ?? '')),
       ),
       GoRoute(
         path: '/otp-verification',
-        builder: (_, state) => OtpVerificationScreen(email: state.extra as String? ?? ''),
+        pageBuilder: (_, state) => _fadePage(OtpVerificationScreen(email: state.extra as String? ?? '')),
       ),
-      GoRoute(path: '/profile-setup', builder: (_, __) => const ProfileSetupScreen()),
-      GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
+      GoRoute(path: '/profile-setup', pageBuilder: (_, __) => _fadePage(const ProfileSetupScreen())),
+      GoRoute(path: '/home', pageBuilder: (_, __) => _fadePage(const HomeScreen())),
       GoRoute(
         path: '/chat/:chatId',
-        builder: (_, state) {
+        pageBuilder: (_, state) {
           final chatId = state.pathParameters['chatId']!;
           final extra = state.extra as Map<String, dynamic>?;
-          return PrivateChatScreen(
+          return _fadePage(PrivateChatScreen(
             chatId: chatId,
             otherUser: extra?['user'] as UserModel?,
-          );
+          ));
         },
       ),
       GoRoute(

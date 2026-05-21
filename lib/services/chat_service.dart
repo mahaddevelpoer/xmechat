@@ -392,6 +392,22 @@ class ChatService {
         .eq('sender_id', _uid);
   }
 
+  Future<List<MessageModel>> fetchStarredMessages(String chatId) async {
+    final data = await _db
+        .from(SupabaseConstants.starredMessagesTable)
+        .select('message_id')
+        .eq('user_id', _uid);
+    if (data.isEmpty) return [];
+    final ids = data.map((d) => d['message_id'] as String).toList();
+    final msgs = await _db
+        .from(SupabaseConstants.messagesTable)
+        .select()
+        .eq('chat_id', chatId)
+        .inFilter('id', ids)
+        .order('created_at', ascending: false);
+    return msgs.map<MessageModel>((m) => MessageModel.fromMap(m)).toList();
+  }
+
   Future<void> toggleStar(String messageId, bool star) async {
     if (star) {
       await _db.from(SupabaseConstants.starredMessagesTable).insert({

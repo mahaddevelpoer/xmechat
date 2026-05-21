@@ -67,11 +67,6 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
         const SnackBar(content: Text('Name must be at least 2 characters')));
       return;
     }
-    if (_phone.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your phone number')));
-      return;
-    }
     if (_avatarBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please upload a profile picture')));
@@ -124,7 +119,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
@@ -166,7 +161,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
             const SizedBox(height: 8),
             CustomTextField(
               controller: _phone,
-              label: 'Phone Number *',
+              label: 'Phone Number (optional)',
               icon: Icons.phone_outlined,
               keyboardType: TextInputType.phone,
             ),
@@ -191,7 +186,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
             CustomButton(
               label: 'Continue',
               loading: _loading,
-              onPressed: (_name.text.trim().length >= 2 && _phone.text.trim().isNotEmpty && _avatarBytes != null && _bio.text.trim().length >= 5) ? _save : null,
+              onPressed: (_name.text.trim().length >= 2 && _avatarBytes != null && _bio.text.trim().length >= 5) ? _save : null,
             ),
             const SizedBox(height: 40),
           ]),

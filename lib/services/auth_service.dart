@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../core/constants/supabase_constants.dart';
@@ -33,6 +34,18 @@ class AuthService {
     await _client.auth.resetPasswordForEmail(email);
   }
 
+  // ── Clear All Local State ─────────────────────────
+  Future<void> clearAllLocalState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys().toList();
+      for (final key in keys) {
+        if (key.endsWith('_rsa_private_key') || key.endsWith('_rsa_public_key')) continue;
+        await prefs.remove(key);
+      }
+    } catch (_) {}
+  }
+
   // ── Sign Out ──────────────────────────────────────
   Future<void> signOut() async {
     try {
@@ -44,6 +57,7 @@ class AuthService {
       }
     } catch (_) {}
     await _client.auth.signOut();
+    await clearAllLocalState();
   }
 
   // ── Check Profile Exists ──────────────────────────

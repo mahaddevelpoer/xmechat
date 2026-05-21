@@ -39,7 +39,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         await XmeChatRoot.instance.init();
       }
       if (!mounted) return;
-      context.go('/home');
+      final hasProfile = await ref.read(authServiceProvider).hasProfile();
+      if (!mounted) return;
+      context.go(hasProfile ? '/home' : '/profile-setup');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

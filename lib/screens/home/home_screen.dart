@@ -10,6 +10,7 @@ import '../../providers/providers.dart';
 import '../../widgets/common/user_avatar.dart';
 import 'home_tabs/chats_tab.dart';
 import 'home_tabs/status_tab.dart';
+import 'home_tabs/calls_tab.dart';
 import '../chat/private_chat_screen.dart';
 import '../chat/group_chat_screen.dart';
 
@@ -29,7 +30,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this)
+    _tabController = TabController(length: 3, vsync: this)
       ..addListener(() {
         if (_tabController.index != _currentIndex) {
           ref.read(searchQueryProvider.notifier).state = '';
@@ -948,7 +949,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [ChatsTab(), StatusTab()],
+        children: const [ChatsTab(), StatusTab(), CallsTab()],
       ),
       bottomNavigationBar: _buildMobileBottomNav(),
     );
@@ -958,6 +959,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final items = [
       (Icons.chat_bubble_outline, 'Chats'),
       (Icons.auto_awesome, 'Status'),
+      (Icons.call_outlined, 'Calls'),
       (Icons.contacts_outlined, 'People'),
       (Icons.settings_outlined, 'Profile'),
     ];
@@ -985,9 +987,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   final isActive = _currentIndex == idx;
                   return GestureDetector(
                     onTap: () {
-                      if (idx == 2) {
+                      if (idx == 3) {
                         context.push('/contacts');
-                      } else if (idx == 3) {
+                      } else if (idx == 4) {
                         context.push('/settings');
                       } else {
                         _tabController.animateTo(idx);

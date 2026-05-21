@@ -352,24 +352,24 @@ returns boolean
 language sql
 security definer
 set search_path = public
-as $$
+as '
   select exists (
     select 1 from public.group_members gm
     where gm.group_id = p_group_id and gm.user_id = p_user_id
   );
-$$;
+';
 
 create or replace function public.is_group_admin(p_group_id uuid, p_user_id uuid)
 returns boolean
 language sql
 security definer
 set search_path = public
-as $$
+as '
   select exists (
     select 1 from public.group_members gm
     where gm.group_id = p_group_id and gm.user_id = p_user_id and gm.is_admin = true
   );
-$$;
+';
 
 -- Users policies
 create policy "authenticated read users" on users for select using (auth.uid() is not null);
@@ -538,21 +538,21 @@ create policy "otp update own email" on otp_codes for update
 
 -- Trigger to automatically create a profile in public.users when an account is created in auth.users
 create or replace function public.handle_new_user() 
-returns trigger as $$
+returns trigger as '
 begin
   insert into public.users (id, email, name, phone_info, bio, avatar_url)
   values (
     new.id, 
     new.email, 
-    coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
-    coalesce(new.raw_user_meta_data->>'phone_info', ''),
-    'Friends Forever',
-    ''
+    coalesce(new.raw_user_meta_data->>''name'', split_part(new.email, ''@'', 1)),
+    coalesce(new.raw_user_meta_data->>''phone_info'', ''''),
+    ''Friends Forever'',
+    ''''
   )
   on conflict (id) do nothing;
   return new;
 end;
-$$ language plpgsql security definer;
+' language plpgsql security definer;
 
 create trigger on_auth_user_created
   after insert on auth.users
@@ -560,12 +560,12 @@ create trigger on_auth_user_created
 
 -- Auto delete expired OTP codes helper
 create or replace function delete_expired_otps()
-returns void as $$
+returns void as '
 begin
   delete from public.otp_codes 
   where expires_at < now() or is_used = true;
 end;
-$$ language plpgsql;
+' language plpgsql;
 
 -- ----------------------------------------------------------------
 -- 6. CREATE STORAGE BUCKETS (avatars, chat-media, etc.)
@@ -584,110 +584,36 @@ on conflict (id) do nothing;
 -- 7. STORAGE POLICIES
 -- ----------------------------------------------------------------
 -- Public read for ALL objects (buckets are public)
-do $$
-begin
-  create policy "public read storage" on storage.objects
-    for select using (true);
-exception when duplicate_object then
-  null;
-end;
-$$;
+drop policy if exists "public read storage" on storage.objects;
+create policy "public read storage" on storage.objects
+  for select using (true);
 
 -- Authenticated users can upload to these buckets
-do $$
-begin
-  create policy "auth upload storage" on storage.objects
-    for insert
-    with check (
-      auth.role() = 'authenticated'
-      and bucket_id in ('avatars','chat-media','status-media','group-icons','documents','voice-notes')
-    );
-exception when duplicate_object then
-  null;
-end;
-$$;
+drop policy if exists "auth upload storage" on storage.objects;
+create policy "auth upload storage" on storage.objects
+  for insert
+  with check (
+    auth.role() = 'authenticated'
+    and bucket_id in ('avatars','chat-media','status-media','group-icons','documents','voice-notes')
+  );
 
 -- Authenticated users can update/delete their own uploaded objects
-do $$
-begin
-  create policy "auth update own storage" on storage.objects
-    for update
-    using (auth.uid() = owner)
-    with check (auth.uid() = owner);
-exception when duplicate_object then
-  null;
-end;
-$$;
+drop policy if exists "auth update own storage" on storage.objects;
+create policy "auth update own storage" on storage.objects
+  for update
+  using (auth.uid() = owner)
+  with check (auth.uid() = owner);
 
-do $$
-begin
-  create policy "auth delete own storage" on storage.objects
-    for delete
-    using (auth.uid() = owner);
-exception when duplicate_object then
-  null;
-end;
-$$;
+drop policy if exists "auth delete own storage" on storage.objects;
+create policy "auth delete own storage" on storage.objects
+  for delete
+  using (auth.uid() = owner);
 
 -- ----------------------------------------------------------------
 -- 8. ENABLE REALTIME ON STREAMED TABLES
 -- ----------------------------------------------------------------
-do $$
-declare
-  target_pubname text := 'supabase_realtime';
-begin
-  if not exists (select 1 from pg_publication where pubname = target_pubname) then
-    raise notice 'Publication supabase_realtime not found.';
-    return;
-  end if;
-
-  -- conversations
-  if not exists (
-    select 1
-    from pg_publication_rel pr
-    join pg_class c on c.oid = pr.prrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where pr.prpubid = (select oid from pg_publication where pubname = target_pubname)
-      and n.nspname = 'public' and c.relname = 'conversations'
-  ) then
-    execute 'alter publication supabase_realtime add table public.conversations';
-  end if;
-
-  -- messages
-  if not exists (
-    select 1
-    from pg_publication_rel pr
-    join pg_class c on c.oid = pr.prrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where pr.prpubid = (select oid from pg_publication where pubname = target_pubname)
-      and n.nspname = 'public' and c.relname = 'messages'
-  ) then
-    execute 'alter publication supabase_realtime add table public.messages';
-  end if;
-
-  -- group_messages
-  if not exists (
-    select 1
-    from pg_publication_rel pr
-    join pg_class c on c.oid = pr.prrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where pr.prpubid = (select oid from pg_publication where pubname = target_pubname)
-      and n.nspname = 'public' and c.relname = 'group_messages'
-  ) then
-    execute 'alter publication supabase_realtime add table public.group_messages';
-  end if;
-
-  -- calls
-  if not exists (
-    select 1
-    from pg_publication_rel pr
-    join pg_class c on c.oid = pr.prrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    where pr.prpubid = (select oid from pg_publication where pubname = target_pubname)
-      and n.nspname = 'public' and c.relname = 'calls'
-  ) then
-    execute 'alter publication supabase_realtime add table public.calls';
-  end if;
-end;
-$$;
+alter publication supabase_realtime add table public.conversations;
+alter publication supabase_realtime add table public.messages;
+alter publication supabase_realtime add table public.group_messages;
+alter publication supabase_realtime add table public.calls;
 

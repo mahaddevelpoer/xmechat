@@ -25,6 +25,8 @@ class WebRTCService {
   RTCDataChannel? _dataChannel;
   final _dataMessagesCtrl = StreamController<String>.broadcast();
   Timer? _ringTimeoutTimer;
+  bool _remoteDescriptionSet = false;
+  bool _connected = false;
 
   OnRemoteStream? onRemoteStream;
   OnCallEnded? onCallEnded;
@@ -36,12 +38,13 @@ class WebRTCService {
     'iceServers': [
       {'urls': SupabaseConstants.stunServer},
       {'urls': SupabaseConstants.stunServer2},
-    ]
+    ],
   };
 
   Stream<String> get dataMessages => _dataMessagesCtrl.stream;
   MediaStream? get localStream => _localStream;
   MediaStream? get remoteStream => _remoteStream;
+  bool get isConnected => _connected;
 
   // ── Init Local Media ──────────────────────────────
   Future<MediaStream> initLocalStream({bool video = true}) async {
@@ -62,7 +65,7 @@ class WebRTCService {
     });
 
     _peerConnection!.onTrack = (event) {
-      _remoteStream = event.streams.firstOrNull;
+      _remoteStream = event.streams.isNotEmpty ? event.streams.first : null;
       if (_remoteStream != null) onRemoteStream?.call(_remoteStream!);
     };
 
@@ -78,16 +81,19 @@ class WebRTCService {
     };
 
     _peerConnection!.onConnectionState = (state) async {
-      if (state ==
-          RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _ringTimeoutTimer?.cancel();
+        _connected = true;
         onCallConnected?.call();
         final callId = _currentCallId;
         if (callId != null && callId.isNotEmpty) {
-          await _db.from(SupabaseConstants.callsTable).update({
-            'status': 'connected',
-            'connected_at': DateTime.now().toUtc().toIso8601String(),
-          }).eq('id', callId);
+          await _db
+              .from(SupabaseConstants.callsTable)
+              .update({
+                'status': 'connected',
+                'connected_at': DateTime.now().toUtc().toIso8601String(),
+              })
+              .eq('id', callId);
         }
       } else if (state ==
               RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
@@ -115,9 +121,7 @@ class WebRTCService {
         if (data is! Map) return;
         final sdp = data['sdp']?.toString() ?? '';
         if (sdp.isEmpty) return;
-        await _peerConnection?.setRemoteDescription(
-          RTCSessionDescription(sdp, 'answer'),
-        );
+        await _setRemoteAnswer(sdp);
       },
     );
 
@@ -131,11 +135,11 @@ class WebRTCService {
         final cand = data['candidate']?.toString() ?? '';
         final mid = data['sdp_mid']?.toString();
         final mline = data['sdp_mline_index'];
-        final idx = mline is int ? mline : int.tryParse(mline?.toString() ?? '');
+        final idx = mline is int
+            ? mline
+            : int.tryParse(mline?.toString() ?? '');
         if (cand.isEmpty) return;
-        await _peerConnection?.addCandidate(
-          RTCIceCandidate(cand, mid, idx),
-        );
+        await _peerConnection?.addCandidate(RTCIceCandidate(cand, mid, idx));
       },
     );
 
@@ -217,14 +221,18 @@ class WebRTCService {
     final offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
 
-    final callData = await _db.from(SupabaseConstants.callsTable).insert({
-      'caller_id': _uid,
-      'receiver_id': receiverId,
-      'type': isVideo ? 'video' : 'voice',
-      'status': 'ringing',
-      // Keep sdp_offer stored for reliability + for incoming popup screen.
-      'sdp_offer': offer.sdp,
-    }).select().single();
+    final callData = await _db
+        .from(SupabaseConstants.callsTable)
+        .insert({
+          'caller_id': _uid,
+          'receiver_id': receiverId,
+          'type': isVideo ? 'video' : 'voice',
+          'status': 'ringing',
+          // Keep sdp_offer stored for reliability + for incoming popup screen.
+          'sdp_offer': offer.sdp,
+        })
+        .select()
+        .single();
 
     _currentCallId = callData['id'] as String;
     await _ensureSignalChannel(_currentCallId!);
@@ -238,15 +246,19 @@ class WebRTCService {
     _ringTimeoutTimer = Timer(const Duration(seconds: 30), () async {
       final callId = _currentCallId;
       if (callId == null) return;
-      final row = await _db.from(SupabaseConstants.callsTable)
+      final row = await _db
+          .from(SupabaseConstants.callsTable)
           .select('status')
           .eq('id', callId)
           .maybeSingle();
       if (row != null && row['status'] == 'ringing') {
-        await _db.from(SupabaseConstants.callsTable).update({
-          'status': 'missed',
-          'ended_at': DateTime.now().toUtc().toIso8601String(),
-        }).eq('id', callId);
+        await _db
+            .from(SupabaseConstants.callsTable)
+            .update({
+              'status': 'missed',
+              'ended_at': DateTime.now().toUtc().toIso8601String(),
+            })
+            .eq('id', callId);
         await _sendSignal('end', {'reason': 'timeout', 'user_id': _uid});
         onCallEnded?.call();
         await dispose();
@@ -257,7 +269,11 @@ class WebRTCService {
   }
 
   // ── Answer Call (Receiver) ────────────────────────
-  Future<void> answerCall(String callId, String sdpOffer, {bool isVideo = true}) async {
+  Future<void> answerCall(
+    String callId,
+    String sdpOffer, {
+    bool isVideo = true,
+  }) async {
     _currentCallId = callId;
     await initLocalStream(video: isVideo);
     await _createPeerConnection();
@@ -269,38 +285,49 @@ class WebRTCService {
     final answer = await _peerConnection!.createAnswer();
     await _peerConnection!.setLocalDescription(answer);
 
-    await _db.from(SupabaseConstants.callsTable).update({
-      'sdp_answer': answer.sdp,
-      'status': 'connected',
-      'connected_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', callId);
+    await _db
+        .from(SupabaseConstants.callsTable)
+        .update({
+          'sdp_answer': answer.sdp,
+          'status': 'connected',
+          'connected_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', callId);
 
     await _sendSignal('answer', {'user_id': _uid, 'sdp': answer.sdp});
   }
 
   // ── Reject / Miss / End ───────────────────────────
   Future<void> rejectCall(String callId) async {
-    await _db.from(SupabaseConstants.callsTable)
-        .update({'status': 'rejected'}).eq('id', callId);
+    await _db
+        .from(SupabaseConstants.callsTable)
+        .update({'status': 'rejected'})
+        .eq('id', callId);
     _currentCallId = callId;
     await _sendSignal('reject', {'user_id': _uid});
   }
 
   Future<void> missCall(String callId) async {
-    await _db.from(SupabaseConstants.callsTable).update({
-      'status': 'missed',
-      'ended_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', callId);
+    await _db
+        .from(SupabaseConstants.callsTable)
+        .update({
+          'status': 'missed',
+          'ended_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', callId);
     _currentCallId = callId;
     await _sendSignal('end', {'user_id': _uid, 'reason': 'missed'});
   }
 
   Future<void> endCall() async {
     if (_currentCallId != null) {
-      await _db.from(SupabaseConstants.callsTable).update({
-        'status': 'ended',
-        'ended_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', _currentCallId!);
+      await _db
+          .from(SupabaseConstants.callsTable)
+          .update({
+            'status': 'ended',
+            'ended_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', _currentCallId!);
       await _sendSignal('end', {'user_id': _uid});
     }
     await dispose();
@@ -309,28 +336,45 @@ class WebRTCService {
 
   void _listenForCallRowUpdates(String callId) {
     // Fallback lifecycle updates (rejected/ended/missed) + answer as backup.
-    _callRowChannel = _db.channel('call_row:$callId')
+    _callRowChannel = _db
+        .channel('call_row:$callId')
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: SupabaseConstants.callsTable,
           filter: PostgresChangeFilter(
-              type: PostgresChangeFilterType.eq, column: 'id', value: callId),
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: callId,
+          ),
           callback: (payload) async {
             final newData = payload.newRecord;
             final status = newData['status']?.toString() ?? '';
-            if (newData['sdp_answer'] != null && newData['sdp_answer'] != '') {
-              await _peerConnection?.setRemoteDescription(
-                RTCSessionDescription(newData['sdp_answer'], 'answer'),
-              );
+            final answer = newData['sdp_answer']?.toString() ?? '';
+            if (answer.isNotEmpty) {
+              await _setRemoteAnswer(answer);
             }
-            if (status == 'rejected' || status == 'ended' || status == 'missed') {
+            if (status == 'rejected' ||
+                status == 'ended' ||
+                status == 'missed') {
               onCallEnded?.call();
               await dispose();
             }
           },
         )
         .subscribe();
+  }
+
+  Future<void> _setRemoteAnswer(String sdp) async {
+    if (_remoteDescriptionSet || sdp.isEmpty) return;
+    final pc = _peerConnection;
+    if (pc == null) return;
+    try {
+      await pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
+      _remoteDescriptionSet = true;
+    } catch (_) {
+      // Broadcast and DB fallback can both deliver the same answer.
+    }
   }
 
   // ── Mute / Camera / Speaker / Switch ──────────────
@@ -353,18 +397,21 @@ class WebRTCService {
 
   // ── Incoming Calls Stream ─────────────────────────
   Stream<CallModel?> listenForIncomingCalls() {
-    return _db.from(SupabaseConstants.callsTable)
+    return _db
+        .from(SupabaseConstants.callsTable)
         .stream(primaryKey: ['id'])
         .map((rows) {
           final incoming = rows.where(
-              (r) => r['receiver_id'] == _uid && r['status'] == 'ringing');
+            (r) => r['receiver_id'] == _uid && r['status'] == 'ringing',
+          );
           return incoming.isNotEmpty ? CallModel.fromMap(incoming.first) : null;
         });
   }
 
   // ── Call History ──────────────────────────────────
   Future<List<CallModel>> fetchCallHistory() async {
-    final data = await _db.from(SupabaseConstants.callsTable)
+    final data = await _db
+        .from(SupabaseConstants.callsTable)
         .select('*, caller:caller_id(*), receiver:receiver_id(*)')
         .or('caller_id.eq.$_uid,receiver_id.eq.$_uid')
         .order('created_at', ascending: false)
@@ -372,7 +419,9 @@ class WebRTCService {
     return data.map<CallModel>((m) {
       final call = CallModel.fromMap(m);
       if (m['caller'] != null) call.caller = UserModel.fromMap(m['caller']);
-      if (m['receiver'] != null) call.receiver = UserModel.fromMap(m['receiver']);
+      if (m['receiver'] != null) {
+        call.receiver = UserModel.fromMap(m['receiver']);
+      }
       return call;
     }).toList();
   }
@@ -381,7 +430,9 @@ class WebRTCService {
     _ringTimeoutTimer?.cancel();
     await _signalChannel?.unsubscribe();
     await _callRowChannel?.unsubscribe();
-    try { await _dataChannel?.close(); } catch (_) {}
+    try {
+      await _dataChannel?.close();
+    } catch (_) {}
 
     _localStream?.getTracks().forEach((t) => t.stop());
     await _localStream?.dispose();
@@ -394,5 +445,7 @@ class WebRTCService {
     _signalChannel = null;
     _callRowChannel = null;
     _dataChannel = null;
+    _remoteDescriptionSet = false;
+    _connected = false;
   }
 }

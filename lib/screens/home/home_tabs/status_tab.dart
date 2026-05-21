@@ -13,6 +13,7 @@ class StatusTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final statusesAsync = ref.watch(statusesProvider);
     final myStatusesAsync = ref.watch(myStatusesProvider);
+    final me = ref.watch(currentUserProvider).valueOrNull;
     final myId = ref.read(authServiceProvider).currentUserId;
 
     return statusesAsync.when(
@@ -33,67 +34,122 @@ class StatusTab extends ConsumerWidget {
               ref.refresh(myStatusesProvider.future),
             ]);
           },
-          child: ListView(children: [
-            // My Status
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              leading: Stack(children: [
-                UserAvatar(
-                  url: null, name: 'Me', radius: 26,
-                  borderColor: myStatuses.isNotEmpty ? AppColors.accentGreen : null,
+          child: ListView(
+            children: [
+              // My Status
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
                 ),
-                Positioned(
-                  bottom: 0, right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      color: AppColors.accentGreen, shape: BoxShape.circle),
-                    child: const Icon(Icons.add, size: 14, color: Colors.white),
+                leading: Stack(
+                  children: [
+                    UserAvatar(
+                      url: me?.avatarUrl,
+                      name: me?.name ?? 'Me',
+                      radius: 26,
+                      borderColor: myStatuses.isNotEmpty
+                          ? AppColors.accentGreen
+                          : null,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(
+                          color: AppColors.accentGreen,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.add,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                title: const Text(
+                  'My Status',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-              ]),
-              title: const Text('My Status',
-                style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-              subtitle: Text(
-                myStatuses.isEmpty ? 'Tap to add status update' : '${myStatuses.length} update(s)',
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              onTap: () {
-                if (myStatuses.isEmpty) {
-                  context.push('/create-status');
-                } else {
-                  context.push('/status/$myId', extra: {'statuses': myStatuses});
-                }
-              },
-            ),
-            if (grouped.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text('RECENT UPDATES',
-                  style: TextStyle(color: AppColors.textHint, fontSize: 12, fontWeight: FontWeight.w600)),
+                subtitle: Text(
+                  myStatuses.isEmpty
+                      ? 'Tap to add status update'
+                      : '${myStatuses.length} update(s)',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+                onTap: () {
+                  if (myStatuses.isEmpty) {
+                    context.push('/create-status');
+                  } else {
+                    context.push(
+                      '/status/$myId',
+                      extra: {'statuses': myStatuses},
+                    );
+                  }
+                },
               ),
-              ...grouped.entries.map((entry) {
-                final userStatuses = entry.value;
-                final user = userStatuses.first.user;
-                final allViewed = userStatuses.every((s) => s.viewedByMe);
-                return ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  leading: UserAvatar(
-                    url: user?.avatarUrl, name: user?.name ?? '?', radius: 26,
-                    borderColor: allViewed ? AppColors.textHint : AppColors.accentGreen,
+              if (grouped.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'RECENT UPDATES',
+                    style: TextStyle(
+                      color: AppColors.textHint,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  title: Text(user?.name ?? 'Unknown',
-                    style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-                  subtitle: Text('${userStatuses.length} update(s)',
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                  onTap: () => context.push(
-                    '/status/${entry.key}',
-                    extra: {'statuses': userStatuses},
-                  ),
-                );
-              }),
-            ] else
-              const SizedBox(height: 80),
-          ]),
+                ),
+                ...grouped.entries.map((entry) {
+                  final userStatuses = entry.value;
+                  final user = userStatuses.first.user;
+                  final allViewed = userStatuses.every((s) => s.viewedByMe);
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    leading: UserAvatar(
+                      url: user?.avatarUrl,
+                      name: user?.name ?? '?',
+                      radius: 26,
+                      borderColor: allViewed
+                          ? AppColors.textHint
+                          : AppColors.accentGreen,
+                    ),
+                    title: Text(
+                      user?.name ?? 'Unknown',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${userStatuses.length} update(s)',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                    onTap: () => context.push(
+                      '/status/${entry.key}',
+                      extra: {'statuses': userStatuses},
+                    ),
+                  );
+                }),
+              ] else
+                const SizedBox(height: 80),
+            ],
+          ),
         );
       },
     );

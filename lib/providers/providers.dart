@@ -10,23 +10,28 @@ import '../services/webrtc_service.dart';
 // ── Core Service Providers ────────────────────────
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
 
+final currentUserIdProvider = Provider<String>((ref) {
+  final authState = ref.watch(authStateProvider).value;
+  return authState?.session?.user.id ?? Supabase.instance.client.auth.currentUser?.id ?? '';
+});
+
 final chatServiceProvider = Provider<ChatService>((ref) {
-  final uid = Supabase.instance.client.auth.currentUser?.id ?? '';
+  final uid = ref.watch(currentUserIdProvider);
   return ChatService(uid);
 });
 
 final groupServiceProvider = Provider<GroupService>((ref) {
-  final uid = Supabase.instance.client.auth.currentUser?.id ?? '';
+  final uid = ref.watch(currentUserIdProvider);
   return GroupService(uid);
 });
 
 final statusServiceProvider = Provider<StatusService>((ref) {
-  final uid = Supabase.instance.client.auth.currentUser?.id ?? '';
+  final uid = ref.watch(currentUserIdProvider);
   return StatusService(uid);
 });
 
 final webrtcServiceProvider = Provider<WebRTCService>((ref) {
-  final uid = Supabase.instance.client.auth.currentUser?.id ?? '';
+  final uid = ref.watch(currentUserIdProvider);
   return WebRTCService(uid);
 });
 

@@ -22,6 +22,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with TickerProviderStateMixin {
   late TabController _tabController;
   int _currentIndex = 0;
+  final _searchCtrl = TextEditingController();
   // For 2-panel desktop layout
   _ThreadItem? _activeThread;
 
@@ -29,7 +30,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this)
-      ..addListener(() => setState(() => _currentIndex = _tabController.index));
+      ..addListener(() {
+        if (_tabController.index != _currentIndex) {
+          ref.read(searchQueryProvider.notifier).state = '';
+          _searchCtrl.clear();
+          setState(() => _currentIndex = _tabController.index);
+        }
+      });
     _setOnline();
     _listenIncomingCalls();
   }
@@ -50,6 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -366,8 +374,54 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       case 2:
         title = 'Status';
         actions = [
-          IconButton(icon: const Icon(Icons.add_box_outlined, size: 22, color: AppColors.textPrimary), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.more_vert, size: 22, color: AppColors.textPrimary), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.add_box_outlined, size: 22, color: AppColors.textPrimary),
+            onPressed: () => context.push('/create-status'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_vert, size: 22, color: AppColors.textPrimary),
+            onPressed: () {
+              final router = GoRouter.of(context);
+              final messenger = ScaffoldMessenger.of(context);
+              final RenderBox button = context.findRenderObject() as RenderBox;
+              final RenderBox overlay = Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
+              final RelativeRect position = RelativeRect.fromRect(
+                Rect.fromPoints(
+                  button.localToGlobal(Offset.zero, ancestor: overlay),
+                  button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+                ),
+                Offset.zero & overlay.size,
+              );
+              showMenu(
+                context: context,
+                position: position,
+                items: [
+                  const PopupMenuItem(
+                    value: 'create',
+                    child: Text('Create status update'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'view',
+                    child: Text('View my status'),
+                  ),
+                ],
+              ).then((value) {
+                if (value == 'create') {
+                  router.push('/create-status');
+                } else if (value == 'view') {
+                  final myId = ref.read(authServiceProvider).currentUserId;
+                  final myStatuses = ref.read(myStatusesProvider).valueOrNull ?? [];
+                  if (myStatuses.isNotEmpty) {
+                    router.push('/status/$myId', extra: {'statuses': myStatuses});
+                  } else {
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('No status updates yet.')),
+                    );
+                  }
+                }
+              });
+            },
+          ),
         ];
         break;
       case 0:
@@ -409,6 +463,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       child: SizedBox(
         height: 36,
         child: TextField(
+          controller: _searchCtrl,
+          onChanged: (val) {
+            ref.read(searchQueryProvider.notifier).state = val;
+          },
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 13),

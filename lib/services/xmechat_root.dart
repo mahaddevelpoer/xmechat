@@ -27,6 +27,10 @@ class XmeChatRoot {
   String? _activeIncomingCallId;
   final List<VoidCallback> _pendingNav = [];
 
+  Timer? _fallbackTimer;
+  final Set<String> _processedNotificationIds = {};
+  DateTime? _lastPollTime;
+
   Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
@@ -51,6 +55,11 @@ class XmeChatRoot {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('windows_autostart', enabled);
     await _setWindowsAutoStart(enabled);
+  }
+
+  Future<void> detachForLogout() async {
+    _pendingNav.clear();
+    await _disposeRealtime();
   }
 
   void _listenAuthAndAttach() {
@@ -85,14 +94,18 @@ class XmeChatRoot {
   Future<void> _setWindowsAutoStart(bool enable) async {
     if (kIsWeb || !Platform.isWindows) return;
 
-    final key = Registry.currentUser
-        .createKey(r'Software\Microsoft\Windows\CurrentVersion\Run');
+    final key = Registry.currentUser.createKey(
+      r'Software\Microsoft\Windows\CurrentVersion\Run',
+    );
     const valueName = 'XmeChat';
     if (enable) {
       // In debug this may point to flutter/dart; in release it points to app exe.
       key.createValue(
-        RegistryValue(valueName, RegistryValueType.string,
-            '"${Platform.resolvedExecutable}"'),
+        RegistryValue(
+          valueName,
+          RegistryValueType.string,
+          '"${Platform.resolvedExecutable}"',
+        ),
       );
     } else {
       try {
@@ -104,6 +117,13 @@ class XmeChatRoot {
 
   Future<void> _attachRealtimeForUser(String userId) async {
     await _disposeRealtime();
+
+    _lastPollTime = DateTime.now();
+    _processedNotificationIds.clear();
+
+    _fallbackTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
+      _pollFallbackUpdates(userId);
+    });
 
     // ── Private messages INSERT (new message) ────────────────────────────────
     _messageChannel = _supabase
@@ -120,6 +140,11 @@ class XmeChatRoot {
           callback: (payload) {
             final msg = payload.newRecord;
             if (msg.isEmpty) return;
+            final id = msg['id']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              if (_processedNotificationIds.contains(id)) return;
+              _processedNotificationIds.add(id);
+            }
             unawaited(_onNewMessage(userId, msg));
           },
         )
@@ -140,6 +165,11 @@ class XmeChatRoot {
           callback: (payload) {
             final row = payload.newRecord;
             if (row.isEmpty) return;
+            final id = row['id']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              if (_processedNotificationIds.contains(id)) return;
+              _processedNotificationIds.add(id);
+            }
             unawaited(_onCallRow(userId, row));
           },
         )
@@ -155,6 +185,11 @@ class XmeChatRoot {
           callback: (payload) {
             final row = payload.newRecord;
             if (row.isEmpty) return;
+            final id = row['id']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              if (_processedNotificationIds.contains(id)) return;
+              _processedNotificationIds.add(id);
+            }
             unawaited(_onCallRow(userId, row));
           },
         )
@@ -172,8 +207,10 @@ class XmeChatRoot {
           .from(SupabaseConstants.groupMembersTable)
           .select('group_id')
           .eq('user_id', userId);
-      final groupIds =
-          rows.map<String>((r) => r['group_id']?.toString() ?? '').where((g) => g.isNotEmpty).toList();
+      final groupIds = rows
+          .map<String>((r) => r['group_id']?.toString() ?? '')
+          .where((g) => g.isNotEmpty)
+          .toList();
       for (final gid in groupIds) {
         final ch = _supabase
             .channel('bg_group_messages:$gid')
@@ -190,6 +227,11 @@ class XmeChatRoot {
                 final msg = payload.newRecord;
                 if (msg.isEmpty) return;
                 if (msg['sender_id']?.toString() == userId) return;
+                final id = msg['id']?.toString() ?? '';
+                if (id.isNotEmpty) {
+                  if (_processedNotificationIds.contains(id)) return;
+                  _processedNotificationIds.add(id);
+                }
                 unawaited(_onNewGroupMessage(userId, msg));
               },
             )
@@ -277,9 +319,14 @@ class XmeChatRoot {
             _navigateOrQueue(() {
               final ctx = rootNavigatorKey.currentContext;
               if (ctx == null) return;
-              GoRouter.of(ctx).go('/group-chat/$groupId', extra: {
-                'group': groupRow == null ? null : GroupModel.fromMap(groupRow),
-              });
+              GoRouter.of(ctx).go(
+                '/group-chat/$groupId',
+                extra: {
+                  'group': groupRow == null
+                      ? null
+                      : GroupModel.fromMap(groupRow),
+                },
+              );
             });
           },
         );
@@ -364,15 +411,111 @@ class XmeChatRoot {
     final actions = List<VoidCallback>.from(_pendingNav);
     _pendingNav.clear();
     for (final a in actions) {
-      try { a(); } catch (_) {}
+      try {
+        a();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _pollFallbackUpdates(String userId) async {
+    try {
+      final timeThreshold = DateTime.now()
+          .subtract(const Duration(minutes: 1))
+          .toUtc()
+          .toIso8601String();
+
+      // 1. Fallback for private messages
+      final messages = await _supabase
+          .from(SupabaseConstants.messagesTable)
+          .select()
+          .eq('receiver_id', userId)
+          .gt('created_at', timeThreshold);
+      for (final msg in messages) {
+        final id = msg['id']?.toString() ?? '';
+        if (id.isNotEmpty && !_processedNotificationIds.contains(id)) {
+          _processedNotificationIds.add(id);
+          if (_lastPollTime != null) {
+            final createdAtStr = msg['created_at']?.toString() ?? '';
+            final createdAt = DateTime.tryParse(createdAtStr)?.toLocal();
+            if (createdAt != null && createdAt.isAfter(_lastPollTime!)) {
+              unawaited(_onNewMessage(userId, msg));
+            }
+          }
+        }
+      }
+
+      // 2. Fallback for group messages
+      final memberRows = await _supabase
+          .from(SupabaseConstants.groupMembersTable)
+          .select('group_id')
+          .eq('user_id', userId);
+      final groupIds = memberRows
+          .map<String>((r) => r['group_id']?.toString() ?? '')
+          .where((g) => g.isNotEmpty)
+          .toList();
+      if (groupIds.isNotEmpty) {
+        final groupMsgs = await _supabase
+            .from(SupabaseConstants.groupMessagesTable)
+            .select()
+            .inFilter('group_id', groupIds)
+            .gt('created_at', timeThreshold);
+        for (final msg in groupMsgs) {
+          final id = msg['id']?.toString() ?? '';
+          if (msg['sender_id']?.toString() == userId) continue;
+          if (id.isNotEmpty && !_processedNotificationIds.contains(id)) {
+            _processedNotificationIds.add(id);
+            if (_lastPollTime != null) {
+              final createdAtStr = msg['created_at']?.toString() ?? '';
+              final createdAt = DateTime.tryParse(createdAtStr)?.toLocal();
+              if (createdAt != null && createdAt.isAfter(_lastPollTime!)) {
+                unawaited(_onNewGroupMessage(userId, msg));
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Fallback for ringing calls
+      final calls = await _supabase
+          .from(SupabaseConstants.callsTable)
+          .select()
+          .eq('receiver_id', userId)
+          .eq('status', 'ringing')
+          .gt('created_at', timeThreshold);
+      for (final row in calls) {
+        final id = row['id']?.toString() ?? '';
+        if (id.isNotEmpty && !_processedNotificationIds.contains(id)) {
+          _processedNotificationIds.add(id);
+          if (_lastPollTime != null) {
+            final createdAtStr = row['created_at']?.toString() ?? '';
+            final createdAt = DateTime.tryParse(createdAtStr)?.toLocal();
+            if (createdAt != null && createdAt.isAfter(_lastPollTime!)) {
+              unawaited(_onCallRow(userId, row));
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('XmeChatRoot: Fallback poll error: $e');
     }
   }
 
   Future<void> _disposeRealtime() async {
-    try { await _messageChannel?.unsubscribe(); } catch (_) {}
-    try { await _callChannel?.unsubscribe(); } catch (_) {}
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+    _processedNotificationIds.clear();
+    _lastPollTime = null;
+
+    try {
+      await _messageChannel?.unsubscribe();
+    } catch (_) {}
+    try {
+      await _callChannel?.unsubscribe();
+    } catch (_) {}
     for (final ch in _groupMessageChannels) {
-      try { await ch.unsubscribe(); } catch (_) {}
+      try {
+        await ch.unsubscribe();
+      } catch (_) {}
     }
     _groupMessageChannels.clear();
     _messageChannel = null;

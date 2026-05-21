@@ -42,13 +42,13 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   @override
   void initState() {
     super.initState();
-    _initRenderers();
-    _setupWebRTC();
+    _init();
   }
 
-  Future<void> _initRenderers() async {
+  Future<void> _init() async {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
+    await _setupWebRTC();
   }
 
   Future<void> _setupWebRTC() async {
@@ -73,10 +73,17 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
       setState(() => _chatMessages.add(m));
     });
 
-    if (widget.isCaller) {
-      // Call is initiated before pushing this screen. Use existing local stream.
-      final stream = webrtc.localStream;
-      if (stream != null) _localRenderer.srcObject = stream;
+    // The call may be created/answered before this screen is pushed.
+    final localStream = webrtc.localStream;
+    final remoteStream = webrtc.remoteStream;
+    if (localStream != null) _localRenderer.srcObject = localStream;
+    if (remoteStream != null) {
+      _remoteRenderer.srcObject = remoteStream;
+      _connected = true;
+      _startTimer();
+    } else if (webrtc.isConnected) {
+      _connected = true;
+      _startTimer();
     }
   }
 
@@ -130,26 +137,32 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                       radius: 50,
                       backgroundImage:
                           widget.otherUser?.avatarUrl.isNotEmpty == true
-                              ? NetworkImage(widget.otherUser!.avatarUrl)
-                              : null,
+                          ? NetworkImage(widget.otherUser!.avatarUrl)
+                          : null,
                       child: widget.otherUser?.avatarUrl.isEmpty != false
-                          ? const Icon(Icons.person,
-                              size: 50, color: Colors.white)
+                          ? const Icon(
+                              Icons.person,
+                              size: 50,
+                              color: Colors.white,
+                            )
                           : null,
                     ),
                     const SizedBox(height: 20),
                     Text(
                       widget.otherUser?.name ?? 'Unknown',
                       style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold),
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       widget.isCaller ? 'Calling...' : 'Connecting...',
                       style: const TextStyle(
-                          color: Colors.white60, fontSize: 16),
+                        color: Colors.white60,
+                        fontSize: 16,
+                      ),
                     ),
                     const SizedBox(height: 18),
                     TextButton.icon(
@@ -159,8 +172,10 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                         Navigator.pop(context);
                       },
                       icon: const Icon(Icons.close, color: Colors.white70),
-                      label: const Text('Cancel',
-                          style: TextStyle(color: Colors.white70)),
+                      label: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Colors.white70),
+                      ),
                     ),
                   ],
                 ),
@@ -177,10 +192,14 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
               onPanUpdate: (d) {
                 setState(() {
                   _pipOffset = Offset(
-                    (_pipOffset!.dx + d.delta.dx)
-                        .clamp(0, MediaQuery.of(context).size.width - 120),
-                    (_pipOffset!.dy + d.delta.dy)
-                        .clamp(0, MediaQuery.of(context).size.height - 200),
+                    (_pipOffset!.dx + d.delta.dx).clamp(
+                      0,
+                      MediaQuery.of(context).size.width - 120,
+                    ),
+                    (_pipOffset!.dy + d.delta.dy).clamp(
+                      0,
+                      MediaQuery.of(context).size.height - 200,
+                    ),
                   );
                 });
               },
@@ -307,8 +326,10 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                 Expanded(
                   child: _chatMessages.isEmpty
                       ? const Center(
-                          child: Text('No messages yet',
-                              style: TextStyle(color: AppColors.textHint)),
+                          child: Text(
+                            'No messages yet',
+                            style: TextStyle(color: AppColors.textHint),
+                          ),
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -336,13 +357,15 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                       ),
                       const SizedBox(width: 10),
                       IconButton(
-                        icon: const Icon(Icons.send,
-                            color: AppColors.primaryGreen),
+                        icon: const Icon(
+                          Icons.send,
+                          color: AppColors.primaryGreen,
+                        ),
                         onPressed: _sendChatMsg,
                       ),
                     ],
                   ),
-                )
+                ),
               ],
             ),
           ),
@@ -387,11 +410,12 @@ class _CallBtn extends StatelessWidget {
             child: Icon(icon, color: Colors.white, size: size * 0.5),
           ),
           const SizedBox(height: 6),
-          Text(label,
-              style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
         ],
       ),
     );
   }
 }
-

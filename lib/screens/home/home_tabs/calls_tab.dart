@@ -12,26 +12,38 @@ class CallsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final query = ref.watch(searchQueryProvider).trim().toLowerCase();
     final callsAsync = ref.watch(callHistoryProvider);
     return callsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (calls) {
-        if (calls.isEmpty) {
-          return const Center(
+        final myId = ref.read(authServiceProvider).currentUserId;
+        final filteredCalls = query.isEmpty
+            ? calls
+            : calls.where((c) {
+                final isOutgoing = c.callerId == myId;
+                final other = isOutgoing ? c.receiver : c.caller;
+                return (other?.name.toLowerCase().contains(query) ?? false) ||
+                    (other?.phoneInfo.contains(query) ?? false);
+              }).toList();
+
+        if (filteredCalls.isEmpty) {
+          return Center(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.call_outlined, size: 80, color: AppColors.textHint),
-              SizedBox(height: 16),
-              Text('No calls yet', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+              const Icon(Icons.call_outlined, size: 80, color: AppColors.textHint),
+              const SizedBox(height: 16),
+              Text(query.isEmpty ? 'No calls yet' : 'No matches found',
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 16)),
             ]),
           );
         }
         return RefreshIndicator(
           onRefresh: () async => ref.refresh(callHistoryProvider),
           child: ListView.separated(
-            itemCount: calls.length,
+            itemCount: filteredCalls.length,
             separatorBuilder: (_, __) => const Divider(indent: 72, height: 1),
-            itemBuilder: (_, i) => _CallTile(call: calls[i]),
+            itemBuilder: (_, i) => _CallTile(call: filteredCalls[i]),
           ),
         );
       },
@@ -78,6 +90,30 @@ class _CallTile extends ConsumerWidget {
         ),
         onPressed: () async {
           if (other == null) return;
+          if (other.id == myId) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Cannot call yourself.'),
+                backgroundColor: AppColors.error,
+              ),
+            );
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Checking contact status...'), duration: Duration(seconds: 1)),
+          );
+          final latestUser = await ref.read(chatServiceProvider).getUserById(other.id);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          if (latestUser == null || !latestUser.isOnline) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('${other.name} is offline. Cannot initiate call.'),
+                backgroundColor: AppColors.error,
+              ),
+            );
+            return;
+          }
           final route = call.type == CallType.video ? '/video-call' : '/voice-call';
           final webrtc = ref.read(webrtcServiceProvider);
           final callId = await webrtc.initiateCall(other.id, isVideo: call.type == CallType.video);

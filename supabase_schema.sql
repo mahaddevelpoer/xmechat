@@ -327,8 +327,33 @@ alter table poll_votes enable row level security;
 -- 4. POLICIES
 -- ----------------------------------------------------------------
 
+-- Membership helpers keep group RLS readable and avoid recursive policies.
+create or replace function public.is_group_member(p_group_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.group_members gm
+    where gm.group_id = p_group_id and gm.user_id = p_user_id
+  );
+$$;
+
+create or replace function public.is_group_admin(p_group_id uuid, p_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.group_members gm
+    where gm.group_id = p_group_id and gm.user_id = p_user_id and gm.is_admin = true
+  );
+$$;
+
 -- Users
-create policy "public read users" on users for select using (true);
+create policy "authenticated read users" on users for select using (auth.uid() is not null);
 create policy "owner update users" on users for update using (auth.uid() = id);
 create policy "users can insert themselves" on users for insert with check (auth.uid() = id);
 
@@ -346,33 +371,57 @@ create policy "message participants insert" on messages for insert with check (a
 create policy "message participants update" on messages for update using (auth.uid() = sender_id or auth.uid() = receiver_id);
 
 -- Reactions
-create policy "reaction read" on reactions for select using (true);
+create policy "reaction read message participants" on reactions for select
+  using (
+    exists (
+      select 1 from messages m
+      where m.id = message_id and (m.sender_id = auth.uid() or m.receiver_id = auth.uid())
+    )
+  );
 create policy "reaction insert" on reactions for insert with check (auth.uid() = user_id);
 create policy "reaction delete" on reactions for delete using (auth.uid() = user_id);
 
 -- Groups
-create policy "group read public" on groups for select using (true);
+create policy "group read members" on groups for select
+  using (created_by = auth.uid() or public.is_group_member(id, auth.uid()));
 create policy "group insert" on groups for insert with check (auth.uid() = created_by);
-create policy "group update" on groups for update using (auth.uid() = created_by);
-create policy "group delete" on groups for delete using (auth.uid() = created_by);
+create policy "group update admins" on groups for update
+  using (auth.uid() = created_by or public.is_group_admin(id, auth.uid()));
+create policy "group delete creator" on groups for delete using (auth.uid() = created_by);
 
 -- Group members
-create policy "group members read" on group_members for select using (true);
-create policy "group members insert" on group_members for insert with check (true);
-create policy "group members delete" on group_members for delete using (true);
+create policy "group members read members" on group_members for select
+  using (public.is_group_member(group_id, auth.uid()));
+create policy "group members insert admins" on group_members for insert
+  with check (
+    auth.uid() = user_id
+    or exists (select 1 from groups g where g.id = group_id and g.created_by = auth.uid())
+    or public.is_group_admin(group_id, auth.uid())
+  );
+create policy "group members update admins" on group_members for update
+  using (public.is_group_admin(group_id, auth.uid()));
+create policy "group members delete admins or self" on group_members for delete
+  using (auth.uid() = user_id or public.is_group_admin(group_id, auth.uid()));
 
 -- Group messages
-create policy "group message read" on group_messages for select using (true);
-create policy "group message insert" on group_messages for insert with check (true);
-create policy "group message update" on group_messages for update using (true);
+create policy "group message read members" on group_messages for select
+  using (public.is_group_member(group_id, auth.uid()));
+create policy "group message insert members" on group_messages for insert
+  with check (auth.uid() = sender_id and public.is_group_member(group_id, auth.uid()));
+create policy "group message update sender or admin" on group_messages for update
+  using (auth.uid() = sender_id or public.is_group_admin(group_id, auth.uid()));
 
 -- Statuses
-create policy "status read public" on statuses for select using (true);
+create policy "status read authenticated" on statuses for select using (auth.uid() is not null);
 create policy "status owner write" on statuses for all using (auth.uid() = user_id);
 
 -- Status views
 create policy "status view insert" on status_views for insert with check (auth.uid() = viewer_id);
-create policy "status view read" on status_views for select using (true);
+create policy "status view read owner or viewer" on status_views for select
+  using (
+    auth.uid() = viewer_id
+    or exists (select 1 from statuses s where s.id = status_id and s.user_id = auth.uid())
+  );
 
 -- Calls
 create policy "call participants read" on calls for select using (auth.uid() = caller_id or auth.uid() = receiver_id);
@@ -380,16 +429,40 @@ create policy "call participants insert" on calls for insert with check (auth.ui
 create policy "call participants update" on calls for update using (auth.uid() = caller_id or auth.uid() = receiver_id);
 
 -- ICE candidates
-create policy "ice read" on ice_candidates for select using (true);
-create policy "ice insert" on ice_candidates for insert with check (true);
+create policy "ice read call participants" on ice_candidates for select
+  using (
+    exists (
+      select 1 from calls c
+      where c.id = call_id and (c.caller_id = auth.uid() or c.receiver_id = auth.uid())
+    )
+  );
+create policy "ice insert call participants" on ice_candidates for insert
+  with check (
+    exists (
+      select 1 from calls c
+      where c.id = call_id and (c.caller_id = auth.uid() or c.receiver_id = auth.uid())
+    )
+  );
 
 -- Group message reads (needed for read receipts in groups)
-create policy "group reads read" on group_message_reads for select using (true);
+create policy "group reads read members" on group_message_reads for select
+  using (
+    exists (
+      select 1 from group_messages gm
+      where gm.id = message_id and public.is_group_member(gm.group_id, auth.uid())
+    )
+  );
 create policy "group reads insert" on group_message_reads for insert with check (auth.uid() = user_id);
 create policy "group reads upsert" on group_message_reads for update using (auth.uid() = user_id);
 
 -- Group message reactions (if you enable reactions later)
-create policy "group reactions read" on group_message_reactions for select using (true);
+create policy "group reactions read members" on group_message_reactions for select
+  using (
+    exists (
+      select 1 from group_messages gm
+      where gm.id = message_id and public.is_group_member(gm.group_id, auth.uid())
+    )
+  );
 create policy "group reactions insert" on group_message_reactions for insert with check (auth.uid() = user_id);
 create policy "group reactions delete" on group_message_reactions for delete using (auth.uid() = user_id);
 
@@ -410,12 +483,27 @@ create policy "saved contacts update own" on saved_contacts for update using (au
 create policy "saved contacts delete own" on saved_contacts for delete using (auth.uid() = user_id);
 
 -- Polls
-create policy "poll read members" on polls for select using (true);
-create policy "poll creator write" on polls for all using (auth.uid() = created_by);
+create policy "poll read members" on polls for select
+  using (public.is_group_member(group_id, auth.uid()));
+create policy "poll creator write" on polls for all
+  using (auth.uid() = created_by or public.is_group_admin(group_id, auth.uid()));
 
 -- Poll votes
-create policy "poll vote insert" on poll_votes for insert with check (auth.uid() = user_id);
-create policy "poll vote read" on poll_votes for select using (true);
+create policy "poll vote insert members" on poll_votes for insert
+  with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from polls p
+      where p.id = poll_id and public.is_group_member(p.group_id, auth.uid())
+    )
+  );
+create policy "poll vote read members" on poll_votes for select
+  using (
+    exists (
+      select 1 from polls p
+      where p.id = poll_id and public.is_group_member(p.group_id, auth.uid())
+    )
+  );
 
 -- ============================================================================
 -- DATABASE TRIGGERS
@@ -467,9 +555,9 @@ $$ LANGUAGE plpgsql;
 
 -- RLS for OTP Codes
 ALTER TABLE public.otp_codes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Anyone can insert otp" ON public.otp_codes
-  FOR INSERT WITH CHECK (true);
-CREATE POLICY "Anyone can read own otp" ON public.otp_codes
-  FOR SELECT USING (true);
-CREATE POLICY "Anyone can update otp" ON public.otp_codes
-  FOR UPDATE USING (true);
+CREATE POLICY "otp insert own email" ON public.otp_codes
+  FOR INSERT WITH CHECK (auth.email() = email);
+CREATE POLICY "otp read own email" ON public.otp_codes
+  FOR SELECT USING (auth.email() = email);
+CREATE POLICY "otp update own email" ON public.otp_codes
+  FOR UPDATE USING (auth.email() = email);

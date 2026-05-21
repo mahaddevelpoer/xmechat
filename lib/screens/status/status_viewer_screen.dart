@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
@@ -19,18 +20,69 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
   int _currentIndex = 0;
   late AnimationController _progressCtrl;
   final _replyCtrl = TextEditingController();
+  VideoPlayerController? _videoCtrl;
+  bool _isVideoLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _progressCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+    _progressCtrl = AnimationController(vsync: this);
     _startProgress();
     _markViewed();
   }
 
-  void _startProgress() {
+  void _startProgress() async {
+    _progressCtrl.stop();
     _progressCtrl.reset();
-    _progressCtrl.forward().then((_) => _next());
+
+    // Safely dispose the old video player controller
+    if (_videoCtrl != null) {
+      final oldCtrl = _videoCtrl!;
+      _videoCtrl = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        oldCtrl.dispose();
+      });
+    }
+
+    if (_currentIndex >= widget.statuses.length) return;
+    final status = widget.statuses[_currentIndex];
+
+    if (status.type == 'video' && status.contentUrl.isNotEmpty) {
+      setState(() {
+        _isVideoLoading = true;
+      });
+      try {
+        final controller = VideoPlayerController.networkUrl(Uri.parse(status.contentUrl));
+        _videoCtrl = controller;
+        await controller.initialize();
+        if (!mounted || _videoCtrl != controller) {
+          controller.dispose();
+          return;
+        }
+        setState(() {
+          _isVideoLoading = false;
+        });
+        _progressCtrl.duration = controller.value.duration;
+        controller.play();
+        _progressCtrl.forward().then((_) {
+          if (mounted && _videoCtrl == controller) {
+            _next();
+          }
+        });
+      } catch (e) {
+        debugPrint('Error loading video status: $e');
+        if (mounted) {
+          setState(() {
+            _isVideoLoading = false;
+          });
+          _progressCtrl.duration = const Duration(seconds: 5);
+          _progressCtrl.forward().then((_) => _next());
+        }
+      }
+    } else {
+      _progressCtrl.duration = const Duration(seconds: 5);
+      _progressCtrl.forward().then((_) => _next());
+    }
   }
 
   void _markViewed() async {
@@ -65,6 +117,7 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
   void dispose() {
     _progressCtrl.dispose();
     _replyCtrl.dispose();
+    _videoCtrl?.dispose();
     super.dispose();
   }
 
@@ -225,7 +278,10 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           ),
-          onTap: () => _progressCtrl.stop(),
+          onTap: () {
+            _progressCtrl.stop();
+            _videoCtrl?.pause();
+          },
           onSubmitted: (_) => _sendReply(status, user),
         ),
       ),
@@ -244,6 +300,7 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
     if (status.userId == myId) return;
 
     _progressCtrl.stop();
+    _videoCtrl?.pause();
     _replyCtrl.clear();
 
     final chatSvc = ref.read(chatServiceProvider);
@@ -252,7 +309,7 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
     final chatId = await chatSvc.getOrCreateChat(receiverId);
     final preview = status.type == 'image'
         ? '📷 Status photo'
-        : (status.text.isNotEmpty ? status.text : 'Status');
+        : (status.type == 'video' ? '🎥 Status video' : (status.text.isNotEmpty ? status.text : 'Status'));
     final text = '↩️ $preview\n$reply';
 
     await chatSvc.sendTextMessage(chatId: chatId, receiverId: receiverId, text: text);
@@ -262,9 +319,12 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
     context.pushReplacement('/chat/$chatId', extra: {'user': otherUser});
   }
 
-  void _openViewers(StatusModel status) {
+  void _openViewers(StatusModel status) async {
+    _progressCtrl.stop();
+    _videoCtrl?.pause();
+
     final views = status.views;
-    showModalBottomSheet(
+    await showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -332,9 +392,17 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
         ),
       ),
     );
+
+    if (mounted) {
+      _videoCtrl?.play();
+      _progressCtrl.forward();
+    }
   }
 
   Future<void> _confirmDelete(StatusModel status) async {
+    _progressCtrl.stop();
+    _videoCtrl?.pause();
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -360,15 +428,36 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
       ]);
       if (!mounted) return;
       Navigator.pop(context);
+    } else {
+      if (mounted) {
+        _videoCtrl?.play();
+        _progressCtrl.forward();
+      }
     }
   }
 
   Widget _buildContent(StatusModel status) {
+    if (status.type == 'video' && status.contentUrl.isNotEmpty) {
+      if (_isVideoLoading) {
+        return const Center(child: CircularProgressIndicator(color: Colors.white));
+      }
+      if (_videoCtrl != null && _videoCtrl!.value.isInitialized) {
+        return Center(
+          child: AspectRatio(
+            aspectRatio: _videoCtrl!.value.aspectRatio,
+            child: VideoPlayer(_videoCtrl!),
+          ),
+        );
+      }
+      return const Center(child: CircularProgressIndicator(color: Colors.white));
+    }
+
     if (status.type == 'image' && status.contentUrl.isNotEmpty) {
       return Image.network(status.contentUrl, fit: BoxFit.cover,
         loadingBuilder: (_, child, prog) =>
           prog == null ? child : const Center(child: CircularProgressIndicator()));
     }
+
     // Text status
     return Container(
       color: _hexToColor(status.bgColor),

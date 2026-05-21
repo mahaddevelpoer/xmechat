@@ -20,6 +20,8 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
   Color _bgColor = AppColors.primaryGreen;
   bool _loading = false;
   Uint8List? _imageBytes;
+  Uint8List? _videoBytes;
+  String _videoExt = 'mp4';
 
   final List<Color> _colors = [
     AppColors.primaryGreen, const Color(0xFF075E54), const Color(0xFF1A237E),
@@ -30,7 +32,7 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this);
   }
 
   Future<void> _pickImage() async {
@@ -55,6 +57,31 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
     }
   }
 
+  Future<void> _pickVideo() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.video,
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      Uint8List? bytes;
+      if (file.bytes != null) {
+        bytes = file.bytes;
+      } else if (file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes != null) {
+        setState(() {
+          _videoBytes = bytes;
+          _videoExt = file.extension ?? 'mp4';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking video: $e');
+    }
+  }
+
   Future<void> _post() async {
     setState(() => _loading = true);
     try {
@@ -66,6 +93,8 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
         );
       } else if (_tabCtrl.index == 1 && _imageBytes != null) {
         await svc.postImageStatus(_imageBytes!);
+      } else if (_tabCtrl.index == 2 && _videoBytes != null) {
+        await svc.postVideoStatus(_videoBytes!, _videoExt);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please add content')));
@@ -98,6 +127,7 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
         bottom: TabBar(controller: _tabCtrl, tabs: const [
           Tab(icon: Icon(Icons.text_fields), text: 'Text'),
           Tab(icon: Icon(Icons.image), text: 'Photo'),
+          Tab(icon: Icon(Icons.videocam), text: 'Video'),
         ]),
         actions: [
           TextButton(
@@ -164,6 +194,33 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
                   Icon(Icons.add_photo_alternate, size: 80, color: AppColors.textHint),
                   SizedBox(height: 16),
                   Text('Tap to select photo', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+                ])),
+          ),
+        ),
+        // Video Status
+        GestureDetector(
+          onTap: _pickVideo,
+          child: Container(
+            color: AppColors.bgSecondary,
+            child: _videoBytes != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle_outline, size: 80, color: AppColors.primaryGreen),
+                      const SizedBox(height: 16),
+                      Text('Video selected (.$_videoExt)', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      Text('${(_videoBytes!.length / (1024 * 1024)).toStringAsFixed(2)} MB', style: const TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                      const SizedBox(height: 16),
+                      const Text('Tap to change video', style: TextStyle(color: AppColors.textHint, fontSize: 13)),
+                    ],
+                  ),
+                )
+              : const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.video_library, size: 80, color: AppColors.textHint),
+                  SizedBox(height: 16),
+                  Text('Tap to select video', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
                 ])),
           ),
         ),

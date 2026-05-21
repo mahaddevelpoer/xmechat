@@ -12,17 +12,79 @@ class ChatsTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final query = ref.watch(searchQueryProvider).trim().toLowerCase();
     final chatsAsync = ref.watch(chatsProvider);
     final groupsAsync = ref.watch(groupsProvider);
+
     return chatsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (chats) {
         final groups = groupsAsync.valueOrNull ?? const <GroupModel>[];
+
+        var filteredChats = chats;
+        var filteredGroups = groups;
+        if (query.isNotEmpty) {
+          filteredChats = chats.where((c) => c.otherUser?.name.toLowerCase().contains(query) ?? false).toList();
+          filteredGroups = groups.where((g) => g.name.toLowerCase().contains(query)).toList();
+        }
+
         final items = <_ThreadItem>[
-          ...chats.map((c) => _ThreadItem.chat(c)),
-          ...groups.map((g) => _ThreadItem.group(g)),
+          ...filteredChats.map((c) => _ThreadItem.chat(c)),
+          ...filteredGroups.map((g) => _ThreadItem.group(g)),
         ]..sort((a, b) => b.lastAt.compareTo(a.lastAt));
+
+        if (query.isNotEmpty) {
+          final searchResults = ref.watch(searchResultsProvider).valueOrNull ?? [];
+          // Filter out users who are already in our chat list
+          final existingUserIds = chats.map((c) => c.otherUser?.id).toSet();
+          final newContacts = searchResults.where((u) => !existingUserIds.contains(u.id)).toList();
+
+          if (items.isEmpty && newContacts.isEmpty) {
+            return const Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.search_off, size: 80, color: AppColors.textHint),
+                SizedBox(height: 16),
+                Text('No matches found', style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
+              ]),
+            );
+          }
+
+          return ListView(
+            children: [
+              if (items.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  child: Text('CHATS & GROUPS', style: TextStyle(color: AppColors.primaryGreen, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                ...items.map((item) {
+                  if (item.kind == _ThreadKind.group) {
+                    return _GroupTile(group: item.group!);
+                  }
+                  return _ChatTile(chat: item.chat!);
+                }),
+              ],
+              if (newContacts.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 6),
+                  child: Text('START A NEW CHAT', style: TextStyle(color: AppColors.primaryGreen, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                ...newContacts.map((user) => ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: UserAvatar(url: user.avatarUrl, name: user.name, radius: 26, isOnline: user.isOnline),
+                  title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: AppColors.textPrimary)),
+                  subtitle: Text(user.bio.isNotEmpty ? user.bio : 'Hey there! I am using XmeChat.', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () async {
+                    final chatSvc = ref.read(chatServiceProvider);
+                    final chatId = await chatSvc.getOrCreateChat(user.id);
+                    if (!context.mounted) return;
+                    context.push('/chat/$chatId', extra: {'user': user});
+                  },
+                )),
+              ],
+            ],
+          );
+        }
 
         if (items.isEmpty) {
           return const Center(
@@ -35,6 +97,7 @@ class ChatsTab extends ConsumerWidget {
             ]),
           );
         }
+
         return RefreshIndicator(
           onRefresh: () async {
             await Future.wait([

@@ -74,6 +74,28 @@ class UserProfileScreen extends ConsumerWidget {
                     icon: Icons.call_outlined,
                     label: 'Call',
                     onTap: () async {
+                      final myId = ref.read(authServiceProvider).currentUserId;
+                      if (userId == myId) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Cannot call yourself.'), backgroundColor: AppColors.error),
+                        );
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Checking contact status...'), duration: Duration(seconds: 1)),
+                      );
+                      final latestUser = await ref.read(chatServiceProvider).getUserById(userId);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                      if (latestUser == null || !latestUser.isOnline) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${user.name} is offline. Cannot initiate call.'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                        return;
+                      }
                       final callId = await ref.read(webrtcServiceProvider).initiateCall(userId, isVideo: false);
                       if (!context.mounted) return;
                       context.push('/voice-call/$callId', extra: {'isCaller': true, 'user': user});
@@ -84,6 +106,28 @@ class UserProfileScreen extends ConsumerWidget {
                     icon: Icons.videocam_outlined,
                     label: 'Video',
                     onTap: () async {
+                      final myId = ref.read(authServiceProvider).currentUserId;
+                      if (userId == myId) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Cannot call yourself.'), backgroundColor: AppColors.error),
+                        );
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Checking contact status...'), duration: Duration(seconds: 1)),
+                      );
+                      final latestUser = await ref.read(chatServiceProvider).getUserById(userId);
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                      if (latestUser == null || !latestUser.isOnline) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${user.name} is offline. Cannot initiate call.'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                        return;
+                      }
                       final callId = await ref.read(webrtcServiceProvider).initiateCall(userId, isVideo: true);
                       if (!context.mounted) return;
                       context.push('/video-call/$callId', extra: {'isCaller': true, 'user': user});

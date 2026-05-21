@@ -1,5 +1,5 @@
 name: xmechat
-description: "A complete WhatsApp-like messaging application"
+description: "Secure messaging app with E2E encryption, voice/video calls, and group chats"
 publish_to: 'none'
 
 version: 2.0.0+1

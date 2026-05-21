@@ -9,7 +9,6 @@ import '../screens/auth/login_screen.dart';
 import '../screens/auth/signup_screen.dart';
 import '../screens/auth/forgot_password_screen.dart';
 import '../screens/auth/email_verification_screen.dart';
-import '../screens/auth/otp_verification_screen.dart';
 import '../screens/auth/profile_setup_screen.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/chat/private_chat_screen.dart';
@@ -69,10 +68,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/verify-email',
         pageBuilder: (_, state) => _fadePage(EmailVerificationScreen(email: state.extra as String? ?? '')),
-      ),
-      GoRoute(
-        path: '/otp-verification',
-        pageBuilder: (_, state) => _fadePage(OtpVerificationScreen(email: state.extra as String? ?? '')),
       ),
       GoRoute(path: '/profile-setup', pageBuilder: (_, __) => _fadePage(const ProfileSetupScreen())),
       GoRoute(path: '/home', pageBuilder: (_, __) => _fadePage(const HomeScreen())),

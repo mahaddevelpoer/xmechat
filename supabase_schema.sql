@@ -3,6 +3,9 @@
 --  Run this whole script in the Supabase SQL editor.
 -- ------------------------------------------------------------
 
+-- Required extensions
+create extension if not exists "uuid-ossp";
+
 -- 1. DROP EXISTING TABLES TO ENSURE A CLEAN STATE
 -- (This prevents errors if a table already existed with different columns)
 DROP TABLE IF EXISTS poll_votes CASCADE;
@@ -20,7 +23,7 @@ DROP TABLE IF EXISTS group_members CASCADE;
 DROP TABLE IF EXISTS groups CASCADE;
 DROP TABLE IF EXISTS reactions CASCADE;
 DROP TABLE IF EXISTS messages CASCADE;
-DROP TABLE IF EXISTS chats CASCADE;
+DROP TABLE IF EXISTS conversations CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
 -- ----------------------------------------------------------------
@@ -38,30 +41,31 @@ create table users (
     last_seen     timestamp with time zone default now(),
     is_online     boolean default false,
     push_token    varchar,
+    is_private    boolean default false,
     created_at    timestamp with time zone default now()
 );
 
 create index idx_users_email on users(email);
 create index idx_users_name on users(name);
 
--- Chats (one‑to‑one)
-create table chats (
+-- Conversations (one‑to‑one)
+create table conversations (
     id                uuid primary key default uuid_generate_v4(),
-    user1_id          uuid references users(id) on delete cascade,
-    user2_id          uuid references users(id) on delete cascade,
+    participant_1     uuid references users(id) on delete cascade,
+    participant_2     uuid references users(id) on delete cascade,
     last_message      text,
     last_message_at   timestamp with time zone default now(),
     last_message_type varchar default 'text',
     created_at        timestamp with time zone default now()
 );
 
-create index idx_chats_user1 on chats(user1_id);
-create index idx_chats_user2 on chats(user2_id);
+create index idx_conversations_p1 on conversations(participant_1);
+create index idx_conversations_p2 on conversations(participant_2);
 
--- Messages (private chats)
+-- Messages (private conversations)
 create table messages (
     id               uuid primary key default uuid_generate_v4(),
-    chat_id          uuid references chats(id) on delete cascade,
+    chat_id          uuid references conversations(id) on delete cascade,
     sender_id        uuid references users(id) on delete cascade,
     receiver_id      uuid references users(id) on delete cascade,
     text             text,
@@ -206,6 +210,8 @@ create table status_views (
 
 create index idx_status_views_status on status_views(status_id);
 create index idx_status_views_viewer on status_views(viewer_id);
+-- Prevent duplicate views for same user + status (required for UPSERT)
+create unique index uniq_status_views on status_views(status_id, viewer_id);
 
 -- Calls
 create table calls (
@@ -242,12 +248,12 @@ create index idx_ice_call on ice_candidates(call_id);
 -- Blocked users
 create table blocked_users (
     id          uuid primary key default uuid_generate_v4(),
-    blocker_id  uuid references users(id) on delete cascade,
-    blocked_id  uuid references users(id) on delete cascade,
+    user_id     uuid references users(id) on delete cascade,
+    blocked_user_id uuid references users(id) on delete cascade,
     created_at  timestamp with time zone default now()
 );
 
-create unique index uniq_blocker_blocked on blocked_users(blocker_id, blocked_id);
+create unique index uniq_blocker_blocked on blocked_users(user_id, blocked_user_id);
 
 -- Starred messages
 create table starred_messages (
@@ -258,6 +264,17 @@ create table starred_messages (
 );
 
 create unique index uniq_starred on starred_messages(user_id, message_id);
+
+-- Saved Contacts
+create table saved_contacts (
+    id          uuid primary key default uuid_generate_v4(),
+    user_id     uuid references users(id) on delete cascade,
+    contact_id  uuid references users(id) on delete cascade,
+    nickname    varchar,
+    created_at  timestamp with time zone default now()
+);
+
+create unique index uniq_user_contact on saved_contacts(user_id, contact_id);
 
 -- Polls
 create table polls (
@@ -288,7 +305,7 @@ create unique index uniq_poll_user_option on poll_votes(poll_id, user_id, option
 -- 3. ENABLE ROW LEVEL SECURITY
 -- ----------------------------------------------------------------
 alter table users enable row level security;
-alter table chats enable row level security;
+alter table conversations enable row level security;
 alter table messages enable row level security;
 alter table reactions enable row level security;
 alter table groups enable row level security;
@@ -302,6 +319,7 @@ alter table calls enable row level security;
 alter table ice_candidates enable row level security;
 alter table blocked_users enable row level security;
 alter table starred_messages enable row level security;
+alter table saved_contacts enable row level security;
 alter table polls enable row level security;
 alter table poll_votes enable row level security;
 
@@ -314,10 +332,13 @@ create policy "public read users" on users for select using (true);
 create policy "owner update users" on users for update using (auth.uid() = id);
 create policy "users can insert themselves" on users for insert with check (auth.uid() = id);
 
--- Chats
-create policy "chat participants can read" on chats for select using (auth.uid() = user1_id or auth.uid() = user2_id);
-create policy "chat participants can insert" on chats for insert with check (auth.uid() = user1_id or auth.uid() = user2_id);
-create policy "chat participants can update" on chats for update using (auth.uid() = user1_id or auth.uid() = user2_id);
+-- Conversations (1:1)
+create policy "conversation participants can read" on conversations for select
+  using (auth.uid() = participant_1 or auth.uid() = participant_2);
+create policy "conversation participants can insert" on conversations for insert
+  with check (auth.uid() = participant_1 or auth.uid() = participant_2);
+create policy "conversation participants can update" on conversations for update
+  using (auth.uid() = participant_1 or auth.uid() = participant_2);
 
 -- Messages
 create policy "message participants read" on messages for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
@@ -351,6 +372,7 @@ create policy "status owner write" on statuses for all using (auth.uid() = user_
 
 -- Status views
 create policy "status view insert" on status_views for insert with check (auth.uid() = viewer_id);
+create policy "status view read" on status_views for select using (true);
 
 -- Calls
 create policy "call participants read" on calls for select using (auth.uid() = caller_id or auth.uid() = receiver_id);
@@ -361,15 +383,31 @@ create policy "call participants update" on calls for update using (auth.uid() =
 create policy "ice read" on ice_candidates for select using (true);
 create policy "ice insert" on ice_candidates for insert with check (true);
 
+-- Group message reads (needed for read receipts in groups)
+create policy "group reads read" on group_message_reads for select using (true);
+create policy "group reads insert" on group_message_reads for insert with check (auth.uid() = user_id);
+create policy "group reads upsert" on group_message_reads for update using (auth.uid() = user_id);
+
+-- Group message reactions (if you enable reactions later)
+create policy "group reactions read" on group_message_reactions for select using (true);
+create policy "group reactions insert" on group_message_reactions for insert with check (auth.uid() = user_id);
+create policy "group reactions delete" on group_message_reactions for delete using (auth.uid() = user_id);
+
 -- Blocked users
-create policy "blocked read own" on blocked_users for select using (auth.uid() = blocker_id);
-create policy "blocked insert own" on blocked_users for insert with check (auth.uid() = blocker_id);
-create policy "blocked delete own" on blocked_users for delete using (auth.uid() = blocker_id);
+create policy "blocked read own" on blocked_users for select using (auth.uid() = user_id);
+create policy "blocked insert own" on blocked_users for insert with check (auth.uid() = user_id);
+create policy "blocked delete own" on blocked_users for delete using (auth.uid() = user_id);
 
 -- Starred messages
 create policy "starred read own" on starred_messages for select using (auth.uid() = user_id);
 create policy "starred insert own" on starred_messages for insert with check (auth.uid() = user_id);
 create policy "starred delete own" on starred_messages for delete using (auth.uid() = user_id);
+
+-- Saved Contacts
+create policy "saved contacts read own" on saved_contacts for select using (auth.uid() = user_id);
+create policy "saved contacts insert own" on saved_contacts for insert with check (auth.uid() = user_id);
+create policy "saved contacts update own" on saved_contacts for update using (auth.uid() = user_id);
+create policy "saved contacts delete own" on saved_contacts for delete using (auth.uid() = user_id);
 
 -- Polls
 create policy "poll read members" on polls for select using (true);
@@ -378,3 +416,60 @@ create policy "poll creator write" on polls for all using (auth.uid() = created_
 -- Poll votes
 create policy "poll vote insert" on poll_votes for insert with check (auth.uid() = user_id);
 create policy "poll vote read" on poll_votes for select using (true);
+
+-- ============================================================================
+-- DATABASE TRIGGERS
+-- ============================================================================
+
+-- Trigger to automatically save the user into public.users when an account is created
+create or replace function public.handle_new_user() 
+returns trigger as $$
+begin
+  insert into public.users (id, email, name, phone_info, bio, avatar_url)
+  values (
+    new.id, 
+    new.email, 
+    coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data->>'phone_info', ''),
+    'Friends Forever',
+    ''
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
+
+-- ============================================================================
+-- OTP CODES (Resend Email Verification)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.otp_codes (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  email TEXT NOT NULL,
+  code TEXT NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  is_used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Auto delete expired codes (helper function to be called manually or via pg_cron)
+CREATE OR REPLACE FUNCTION delete_expired_otps()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM public.otp_codes 
+  WHERE expires_at < NOW() OR is_used = TRUE;
+END;
+$$ LANGUAGE plpgsql;
+
+-- RLS for OTP Codes
+ALTER TABLE public.otp_codes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can insert otp" ON public.otp_codes
+  FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can read own otp" ON public.otp_codes
+  FOR SELECT USING (true);
+CREATE POLICY "Anyone can update otp" ON public.otp_codes
+  FOR UPDATE USING (true);

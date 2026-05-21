@@ -14,6 +14,7 @@ class UserModel {
   final bool isOnline;
   final String pushToken;
   final DateTime createdAt;
+  final bool isPrivate;
 
   const UserModel({
     required this.id,
@@ -26,6 +27,7 @@ class UserModel {
     this.isOnline = false,
     this.pushToken = '',
     required this.createdAt,
+    this.isPrivate = false,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -35,14 +37,11 @@ class UserModel {
     phoneInfo: map['phone_info'] ?? '',
     avatarUrl: map['avatar_url'] ?? '',
     bio: map['bio'] ?? '',
-    lastSeen: map['last_seen'] != null
-        ? DateTime.parse(map['last_seen']).toLocal()
-        : DateTime.now(),
+    lastSeen: map['last_seen'] != null ? DateTime.parse(map['last_seen']).toLocal() : DateTime.now(),
     isOnline: map['is_online'] ?? false,
     pushToken: map['push_token'] ?? '',
-    createdAt: map['created_at'] != null
-        ? DateTime.parse(map['created_at']).toLocal()
-        : DateTime.now(),
+    createdAt: map['created_at'] != null ? DateTime.parse(map['created_at']).toLocal() : DateTime.now(),
+    isPrivate: map['is_private'] ?? false,
   );
 
   Map<String, dynamic> toMap() => {
@@ -55,6 +54,7 @@ class UserModel {
     'last_seen': lastSeen.toUtc().toIso8601String(),
     'is_online': isOnline,
     'push_token': pushToken,
+    'is_private': isPrivate,
   };
 
   UserModel copyWith({
@@ -65,6 +65,7 @@ class UserModel {
     DateTime? lastSeen,
     bool? isOnline,
     String? pushToken,
+    bool? isPrivate,
   }) => UserModel(
     id: id,
     email: email,
@@ -76,6 +77,7 @@ class UserModel {
     isOnline: isOnline ?? this.isOnline,
     pushToken: pushToken ?? this.pushToken,
     createdAt: createdAt,
+    isPrivate: isPrivate ?? this.isPrivate,
   );
 }
 
@@ -103,10 +105,14 @@ class ChatModel {
     this.unreadCount = 0,
   });
 
+  /// Supports both legacy schema:
+  /// - chats(user1_id, user2_id)
+  /// and new schema:
+  /// - conversations(participant_1, participant_2)
   factory ChatModel.fromMap(Map<String, dynamic> map) => ChatModel(
     id: map['id'] ?? '',
-    user1Id: map['user1_id'] ?? '',
-    user2Id: map['user2_id'] ?? '',
+    user1Id: (map['participant_1'] ?? map['user1_id'] ?? '').toString(),
+    user2Id: (map['participant_2'] ?? map['user2_id'] ?? '').toString(),
     lastMessage: map['last_message'] ?? '',
     lastMessageAt: map['last_message_at'] != null
         ? DateTime.parse(map['last_message_at']).toLocal()
@@ -123,7 +129,7 @@ class ChatModel {
 // ── MessageType ────────────────────────────────────
 enum MessageType {
   text, image, video, audio, document, location,
-  contact, gif, sticker, viewOnce, deleted
+  contact, gif, sticker, viewOnce, poll, deleted
 }
 
 extension MessageTypeExt on MessageType {

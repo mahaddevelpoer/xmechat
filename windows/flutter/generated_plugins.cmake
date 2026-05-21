@@ -5,14 +5,17 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   bitsdojo_window_windows
-  cloud_firestore
+  emoji_picker_flutter
   file_selector_windows
-  firebase_auth
   firebase_core
-  firebase_storage
+  flutter_webrtc
+  geolocator_windows
+  local_notifier
   permission_handler_windows
   record_windows
+  share_plus
   url_launcher_windows
+  windows_taskbar
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

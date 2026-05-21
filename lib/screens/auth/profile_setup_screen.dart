@@ -18,10 +18,24 @@ class ProfileSetupScreen extends ConsumerStatefulWidget {
 class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
-  final _bio = TextEditingController();
+  final _bio = TextEditingController(text: 'Friends Forever');
   bool _loading = false;
+  bool _privacyChecked = false;
+  bool _hasInteracted = false;
   Uint8List? _avatarBytes;
   String? _avatarUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _name.addListener(_updateState);
+    _phone.addListener(_updateState);
+    _bio.addListener(_updateState);
+  }
+
+  void _updateState() {
+    setState(() {});
+  }
 
   Future<void> _pickAvatar() async {
     final picker = ImagePicker();
@@ -32,10 +46,24 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   }
 
   Future<void> _save() async {
-    if (_name.text.trim().isEmpty) {
+    setState(() => _hasInteracted = true);
+    if (_name.text.trim().length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your name')));
+        const SnackBar(content: Text('Name must be at least 2 characters')));
       return;
+    }
+    if (_phone.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your phone number')));
+      return;
+    }
+    if (_avatarBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload a profile picture')));
+      return;
+    }
+    if (_bio.text.trim().isEmpty) {
+      _bio.text = 'Friends Forever';
     }
     setState(() => _loading = true);
     try {
@@ -53,6 +81,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
         avatarUrl: _avatarUrl ?? '',
         lastSeen: DateTime.now(),
         createdAt: DateTime.now(),
+        isPrivate: _privacyChecked,
       ));
       await auth.updateOnlineStatus(true);
       if (!mounted) return;
@@ -67,7 +96,15 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   }
 
   @override
-  void dispose() { _name.dispose(); _phone.dispose(); _bio.dispose(); super.dispose(); }
+  void dispose() { 
+    _name.removeListener(_updateState);
+    _phone.removeListener(_updateState);
+    _bio.removeListener(_updateState);
+    _name.dispose(); 
+    _phone.dispose(); 
+    _bio.dispose(); 
+    super.dispose(); 
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,22 +145,39 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
               label: 'Full Name *',
               icon: Icons.person_outline,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+            if (_hasInteracted && _name.text.trim().length < 2)
+              const Text('Name must be at least 2 characters', style: TextStyle(color: AppColors.error, fontSize: 12)),
+            const SizedBox(height: 8),
             CustomTextField(
               controller: _phone,
-              label: 'Phone Number (optional)',
+              label: 'Phone Number *',
               icon: Icons.phone_outlined,
               keyboardType: TextInputType.phone,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             CustomTextField(
               controller: _bio,
-              label: 'Bio (optional)',
+              label: 'Bio *',
               icon: Icons.info_outline,
               maxLines: 2,
             ),
-            const SizedBox(height: 36),
-            CustomButton(label: 'Continue', loading: _loading, onPressed: _save),
+            const SizedBox(height: 8),
+            if (_hasInteracted && _bio.text.trim().length < 5)
+              const Text('Bio must be at least 5 characters', style: TextStyle(color: AppColors.error, fontSize: 12)),
+            const SizedBox(height: 16),
+            CheckboxListTile(
+              value: _privacyChecked,
+              onChanged: (val) => setState(() => _privacyChecked = val ?? false),
+              title: const Text('Only people I choose can find me'),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const SizedBox(height: 32),
+            CustomButton(
+              label: 'Continue',
+              loading: _loading,
+              onPressed: (_name.text.trim().length >= 2 && _phone.text.trim().isNotEmpty && _avatarBytes != null && _bio.text.trim().length >= 5) ? _save : null,
+            ),
             const SizedBox(height: 40),
           ]),
         ),

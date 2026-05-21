@@ -1,12 +1,13 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/navigation/app_navigator.dart';
 import '../screens/auth/splash_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/signup_screen.dart';
 import '../screens/auth/forgot_password_screen.dart';
 import '../screens/auth/email_verification_screen.dart';
+import '../screens/auth/otp_verification_screen.dart';
 import '../screens/auth/profile_setup_screen.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/chat/private_chat_screen.dart';
@@ -24,11 +25,13 @@ import '../screens/contacts/user_profile_screen.dart';
 import '../screens/contacts/search_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/settings/edit_profile_screen.dart';
+import '../screens/settings/blocked_users_screen.dart';
 import '../models/models.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
+    navigatorKey: rootNavigatorKey,
     redirect: (ctx, state) {
       final user = Supabase.instance.client.auth.currentUser;
       final isAuthRoute = state.matchedLocation.startsWith('/login') ||
@@ -43,7 +46,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       GoRoute(path: '/signup', builder: (_, __) => const SignupScreen()),
       GoRoute(path: '/forgot-password', builder: (_, __) => const ForgotPasswordScreen()),
-      GoRoute(path: '/verify-email', builder: (_, __) => const EmailVerificationScreen()),
+      GoRoute(
+        path: '/verify-email',
+        builder: (_, state) => EmailVerificationScreen(email: state.extra as String? ?? ''),
+      ),
+      GoRoute(
+        path: '/otp-verification',
+        builder: (_, state) => OtpVerificationScreen(email: state.extra as String? ?? ''),
+      ),
       GoRoute(path: '/profile-setup', builder: (_, __) => const ProfileSetupScreen()),
       GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
       GoRoute(
@@ -122,6 +132,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/edit-profile', builder: (_, __) => const EditProfileScreen()),
+      GoRoute(path: '/blocked-contacts', builder: (_, __) => const BlockedUsersScreen()),
     ],
   );
 });

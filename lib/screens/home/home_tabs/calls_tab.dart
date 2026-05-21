@@ -78,9 +78,6 @@ class _CallTile extends ConsumerWidget {
         ),
         onPressed: () async {
           if (other == null) return;
-          final chatService = ref.read(chatServiceProvider);
-          final chatId = await chatService.getOrCreateChat(other.id);
-          if (!context.mounted) return;
           final route = call.type == CallType.video ? '/video-call' : '/voice-call';
           final webrtc = ref.read(webrtcServiceProvider);
           final callId = await webrtc.initiateCall(other.id, isVideo: call.type == CallType.video);

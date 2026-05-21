@@ -25,8 +25,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     try {
       await ref.read(authServiceProvider).signUp(
         email: _email.text.trim(), password: _pass.text);
+        
       if (!mounted) return;
-      context.go('/verify-email');
+      context.go('/profile-setup');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -83,11 +84,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
               icon: Icons.lock_outline,
               obscureText: _obscure,
               validator: (v) => v == _pass.text ? null : 'Passwords do not match',
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '* A verification email will be sent to your address.',
-              style: TextStyle(color: AppColors.textHint, fontSize: 12),
             ),
             const SizedBox(height: 32),
             CustomButton(label: 'Create Account', loading: _loading, onPressed: _signup),

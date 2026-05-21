@@ -13,6 +13,7 @@ class StatusTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final statusesAsync = ref.watch(statusesProvider);
     final myStatusesAsync = ref.watch(myStatusesProvider);
+    final myId = ref.read(authServiceProvider).currentUserId;
 
     return statusesAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -22,12 +23,15 @@ class StatusTab extends ConsumerWidget {
         // Group statuses by user
         final Map<String, List<StatusModel>> grouped = {};
         for (final s in statuses) {
+          if (s.userId == myId) continue; // my statuses shown separately
           grouped[s.userId] = (grouped[s.userId] ?? [])..add(s);
         }
         return RefreshIndicator(
           onRefresh: () async {
-            ref.refresh(statusesProvider);
-            ref.refresh(myStatusesProvider);
+            await Future.wait([
+              ref.refresh(statusesProvider.future),
+              ref.refresh(myStatusesProvider.future),
+            ]);
           },
           child: ListView(children: [
             // My Status
@@ -53,7 +57,13 @@ class StatusTab extends ConsumerWidget {
               subtitle: Text(
                 myStatuses.isEmpty ? 'Tap to add status update' : '${myStatuses.length} update(s)',
                 style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-              onTap: () => context.push('/create-status'),
+              onTap: () {
+                if (myStatuses.isEmpty) {
+                  context.push('/create-status');
+                } else {
+                  context.push('/status/$myId', extra: {'statuses': myStatuses});
+                }
+              },
             ),
             if (grouped.isNotEmpty) ...[
               const Padding(

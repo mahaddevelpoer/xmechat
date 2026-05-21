@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
@@ -17,7 +18,6 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
     with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
   late AnimationController _progressCtrl;
-  Timer? _timer;
   final _replyCtrl = TextEditingController();
 
   @override
@@ -35,7 +35,12 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
 
   void _markViewed() async {
     if (_currentIndex < widget.statuses.length) {
-      await ref.read(statusServiceProvider).markViewed(widget.statuses[_currentIndex].id);
+      final status = widget.statuses[_currentIndex];
+      final myId = ref.read(authServiceProvider).currentUserId;
+      if (status.userId == myId) return; // don't mark self-status as viewed
+      await ref.read(statusServiceProvider).markViewed(status.id);
+      // Refresh list so ring color can update without manual refresh.
+      unawaited(ref.refresh(statusesProvider.future));
     }
   }
 
@@ -60,7 +65,6 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
   void dispose() {
     _progressCtrl.dispose();
     _replyCtrl.dispose();
-    _timer?.cancel();
     super.dispose();
   }
 
@@ -70,7 +74,10 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
       return const Scaffold(body: Center(child: Text('No statuses')));
     }
     final status = widget.statuses[_currentIndex];
-    final user = status.user;
+    final myId = ref.read(authServiceProvider).currentUserId;
+    final isMine = status.userId == myId;
+    final user = isMine ? ref.watch(currentUserProvider).valueOrNull : status.user;
+    final displayName = isMine ? (user?.name.isNotEmpty == true ? user!.name : 'Me') : (user?.name ?? 'Unknown');
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -78,7 +85,11 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
         onTapDown: (d) {
           final x = d.globalPosition.dx;
           final width = MediaQuery.of(context).size.width;
-          if (x < width / 3) _prev() ; else _next();
+          if (x < width / 3) {
+            _prev();
+          } else {
+            _next();
+          }
         },
         child: Stack(children: [
           // Content
@@ -128,7 +139,7 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
                   ),
                   const SizedBox(width: 10),
                   Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(user?.name ?? 'Unknown',
+                    Text(displayName,
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     Text(_timeAgo(status.createdAt),
                       style: const TextStyle(color: Colors.white70, fontSize: 12)),
@@ -142,48 +153,214 @@ class _StatusViewerScreenState extends ConsumerState<StatusViewerScreen>
               ),
             ])),
           ),
-          // Bottom reply
-          Positioned(bottom: 0, left: 0, right: 0,
+          // Bottom area (reply OR viewers)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
             child: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),
-                child: Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _replyCtrl,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'Reply to status...',
-                        hintStyle: const TextStyle(color: Colors.white60),
-                        filled: true,
-                        fillColor: Colors.white24,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(25),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      ),
-                      onTap: () => _progressCtrl.stop(),
-                      onSubmitted: (_) { _progressCtrl.forward(); _replyCtrl.clear(); },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {},
-                    child: const Icon(Icons.thumb_up_outlined, color: Colors.white, size: 28),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {},
-                    child: const Icon(Icons.send, color: Colors.white, size: 28),
-                  ),
-                ]),
+                child: isMine ? _mineBottomBar(status) : _replyBar(status, user),
               ),
             ),
           ),
         ]),
       ),
     );
+  }
+
+  Widget _mineBottomBar(StatusModel status) {
+    final viewsCount = status.views.length;
+    return Row(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: () => _openViewers(status),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.remove_red_eye_outlined,
+                      color: Colors.white, size: 18),
+                  const SizedBox(width: 10),
+                  Text(
+                    '$viewsCount seen',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        IconButton(
+          icon: const Icon(Icons.delete_outline, color: Colors.white),
+          onPressed: () => _confirmDelete(status),
+        ),
+      ],
+    );
+  }
+
+  Widget _replyBar(StatusModel status, UserModel? user) {
+    return Row(children: [
+      Expanded(
+        child: TextField(
+          controller: _replyCtrl,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Reply to status...',
+            hintStyle: const TextStyle(color: Colors.white60),
+            filled: true,
+            fillColor: Colors.white24,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(25),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          ),
+          onTap: () => _progressCtrl.stop(),
+          onSubmitted: (_) => _sendReply(status, user),
+        ),
+      ),
+      const SizedBox(width: 8),
+      GestureDetector(
+        onTap: () => _sendReply(status, user),
+        child: const Icon(Icons.send, color: Colors.white, size: 28),
+      ),
+    ]);
+  }
+
+  Future<void> _sendReply(StatusModel status, UserModel? user) async {
+    final reply = _replyCtrl.text.trim();
+    if (reply.isEmpty) return;
+    final myId = ref.read(authServiceProvider).currentUserId;
+    if (status.userId == myId) return;
+
+    _progressCtrl.stop();
+    _replyCtrl.clear();
+
+    final chatSvc = ref.read(chatServiceProvider);
+    final receiverId = status.userId;
+    final otherUser = user ?? await chatSvc.getUserById(receiverId);
+    final chatId = await chatSvc.getOrCreateChat(receiverId);
+    final preview = status.type == 'image'
+        ? '📷 Status photo'
+        : (status.text.isNotEmpty ? status.text : 'Status');
+    final text = '↩️ $preview\n$reply';
+
+    await chatSvc.sendTextMessage(chatId: chatId, receiverId: receiverId, text: text);
+    if (!mounted) return;
+
+    // Open private chat screen (as requested).
+    context.pushReplacement('/chat/$chatId', extra: {'user': otherUser});
+  }
+
+  void _openViewers(StatusModel status) {
+    final views = status.views;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Text('Seen by',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Text('${views.length}',
+                      style: const TextStyle(color: AppColors.textSecondary)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (views.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('No views yet',
+                      style: TextStyle(color: AppColors.textSecondary)),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: views.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final v = views[i];
+                      final u = v.viewer;
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.bgSecondary,
+                          backgroundImage: u?.avatarUrl.isNotEmpty == true
+                              ? NetworkImage(u!.avatarUrl)
+                              : null,
+                          child: u?.avatarUrl.isEmpty != false
+                              ? Text(
+                                  (u?.name.isNotEmpty == true
+                                          ? u!.name.trim()[0]
+                                          : '?')
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                      color: AppColors.textPrimary),
+                                )
+                              : null,
+                        ),
+                        title: Text(u?.name ?? v.viewerId),
+                        subtitle: Text(_timeAgo(v.viewedAt),
+                            style: const TextStyle(
+                                color: AppColors.textSecondary, fontSize: 12)),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(StatusModel status) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete status?'),
+        content: const Text('This will remove the status for everyone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref.read(statusServiceProvider).deleteStatus(status.id);
+      await Future.wait([
+        ref.refresh(myStatusesProvider.future),
+        ref.refresh(statusesProvider.future),
+      ]);
+      if (!mounted) return;
+      Navigator.pop(context);
+    }
   }
 
   Widget _buildContent(StatusModel status) {

@@ -3,12 +3,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/constants/app_colors.dart';
 import 'config/router.dart';
 import 'providers/providers.dart';
+import 'services/xmechat_root.dart';
 
-class XmeChat extends ConsumerWidget {
+class XmeChat extends ConsumerStatefulWidget {
   const XmeChat({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<XmeChat> createState() => _XmeChatState();
+}
+
+class _XmeChatState extends ConsumerState<XmeChat> {
+  bool _markedReady = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_markedReady) {
+      _markedReady = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        XmeChatRoot.instance.markUiReady();
+      });
+    }
     final router = ref.watch(routerProvider);
     final isDark = ref.watch(themeProvider);
     return MaterialApp.router(

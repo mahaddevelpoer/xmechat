@@ -3,11 +3,13 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'utils/desktop.dart';
 import 'dart:io' show Platform;
 
 import 'app.dart';
 import 'core/constants/supabase_constants.dart';
+
+import 'services/xmechat_root.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +29,9 @@ void main() async {
   } catch (_) {
     // Firebase may fail on desktop - that's OK
   }
+
+  // Init Background Service
+  await XmeChatRoot.instance.init();
 
   runApp(
     const ProviderScope(

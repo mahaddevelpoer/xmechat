@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
@@ -20,13 +19,20 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   bool _muted = false, _speaker = false, _connected = false;
   int _seconds = 0;
   Timer? _timer;
+  final _chatCtrl = TextEditingController();
+  final List<String> _chatMessages = [];
+  StreamSubscription<String>? _chatSub;
 
   @override
   void initState() {
     super.initState();
     final webrtc = ref.read(webrtcServiceProvider);
     webrtc.onCallConnected = () { if (mounted) { setState(() => _connected = true); _startTimer(); } };
-    webrtc.onCallEnded = () { if (mounted) context.pop(); };
+    webrtc.onCallEnded = () { if (mounted) Navigator.pop(context); };
+    _chatSub = webrtc.dataMessages.listen((m) {
+      if (!mounted) return;
+      setState(() => _chatMessages.add(m));
+    });
   }
 
   void _startTimer() {
@@ -42,10 +48,18 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
   }
 
   @override
-  void dispose() { _timer?.cancel(); super.dispose(); }
+  void dispose() {
+    _timer?.cancel();
+    _chatSub?.cancel();
+    _chatCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final statusText = _connected
+        ? _callDuration
+        : (widget.isCaller ? 'Calling...' : 'Ringing...');
     return Scaffold(
       backgroundColor: AppColors.primaryGreen,
       body: SafeArea(
@@ -56,8 +70,19 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
           Text(widget.otherUser?.name ?? 'Unknown',
             style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text(_connected ? _callDuration : 'Ringing...',
-            style: const TextStyle(color: Colors.white70, fontSize: 16)),
+          Text(statusText, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+          if (!_connected && widget.isCaller) ...[
+            const SizedBox(height: 14),
+            TextButton.icon(
+              onPressed: () async {
+                await ref.read(webrtcServiceProvider).endCall();
+                if (!context.mounted) return;
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.close, color: Colors.white70),
+              label: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+          ],
           const Spacer(),
           Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             _VoiceBtn(
@@ -66,9 +91,14 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
               onTap: () { ref.read(webrtcServiceProvider).toggleMute(!_muted); setState(() => _muted = !_muted); },
             ),
             _VoiceBtn(
+              icon: Icons.chat_bubble_outline,
+              label: 'Chat',
+              onTap: _openInCallChat,
+            ),
+            _VoiceBtn(
               icon: Icons.call_end, label: 'End',
               bg: AppColors.error, size: 65,
-              onTap: () async { await ref.read(webrtcServiceProvider).endCall(); if (!mounted) return; context.pop(); },
+              onTap: () async { await ref.read(webrtcServiceProvider).endCall(); if (!context.mounted) return; Navigator.pop(context); },
             ),
             _VoiceBtn(
               icon: _speaker ? Icons.volume_up : Icons.volume_down,
@@ -83,6 +113,91 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         ]),
       ),
     );
+  }
+
+  void _openInCallChat() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SizedBox(
+            height: 420,
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'In-call chat',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const Divider(height: 20),
+                Expanded(
+                  child: _chatMessages.isEmpty
+                      ? const Center(
+                          child: Text('No messages yet',
+                              style: TextStyle(color: AppColors.textHint)),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: _chatMessages.length,
+                          itemBuilder: (_, i) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Text(_chatMessages[i]),
+                          ),
+                        ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _chatCtrl,
+                          decoration: const InputDecoration(
+                            hintText: 'Message...',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          onSubmitted: (_) => _sendChatMsg(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton(
+                        icon: const Icon(Icons.send, color: AppColors.primaryGreen),
+                        onPressed: _sendChatMsg,
+                      ),
+                    ],
+                  ),
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _sendChatMsg() async {
+    final text = _chatCtrl.text.trim();
+    if (text.isEmpty) return;
+    _chatCtrl.clear();
+    await ref.read(webrtcServiceProvider).sendInCallChatMessage(text);
   }
 }
 

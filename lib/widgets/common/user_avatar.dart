@@ -15,6 +15,7 @@ class UserAvatar extends StatelessWidget {
   final String name;
   final bool isOnline;
   final double radius;
+  final Color? borderColor;
 
   const UserAvatar({
     super.key,
@@ -22,6 +23,7 @@ class UserAvatar extends StatelessWidget {
     required this.name,
     this.isOnline = false,
     this.radius = 24,
+    this.borderColor,
   });
 
   String get _initials {
@@ -33,7 +35,7 @@ class UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avatar = CircleAvatar(
+    Widget avatar = CircleAvatar(
       radius: radius,
       backgroundColor: AppColors.bgSecondary,
       backgroundImage: url != null ? NetworkImage(url!) : null,
@@ -48,6 +50,16 @@ class UserAvatar extends StatelessWidget {
             )
           : null,
     );
+
+    if (borderColor != null) {
+      avatar = Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: borderColor!, width: 2),
+        ),
+        child: avatar,
+      );
+    }
 
     if (!isOnline) return avatar;
     return Stack(

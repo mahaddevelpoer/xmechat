@@ -9,7 +9,7 @@ import '../../core/constants/app_colors.dart';
 /// [color] – Optional background color; defaults to primary green.
 class CustomButton extends StatelessWidget {
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool loading;
   final Color? color;
 
@@ -35,7 +35,7 @@ class CustomButton extends StatelessWidget {
           ),
           elevation: 2,
         ),
-        onPressed: loading ? null : onPressed,
+        onPressed: (loading || onPressed == null) ? null : onPressed,
         child: loading
             ? const SizedBox(
                 width: 24,

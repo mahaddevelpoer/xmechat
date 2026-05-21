@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../widgets/common/user_avatar.dart';
+import '../../widgets/add_group_member_sheet.dart';
 
 class GroupInfoScreen extends ConsumerStatefulWidget {
   final String groupId;
@@ -36,6 +37,16 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
     });
   }
 
+  Future<void> _addMember() async {
+    final user = await showDialog<UserModel?>(
+      context: context,
+      builder: (_) => const AddGroupMemberSheet(),
+    );
+    if (user == null) return;
+    await ref.read(groupServiceProvider).addMembers(widget.groupId, [user.id]);
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -46,7 +57,7 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
           flexibleSpace: FlexibleSpaceBar(
             background: _group?.iconUrl.isNotEmpty == true
               ? Image.network(_group!.iconUrl, fit: BoxFit.cover)
-              : Container(color: AppColors.tealGreen,
+              : Container(color: AppColors.accentGreen,
                   child: const Icon(Icons.group, size: 80, color: Colors.white54)),
           ),
         ),
@@ -81,7 +92,7 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                     child: const Icon(Icons.person_add, color: Colors.white),
                   ),
                   title: const Text('Add Members', style: TextStyle(color: AppColors.accentGreen, fontWeight: FontWeight.w500)),
-                  onTap: () => context.push('/contacts'),
+                  onTap: _addMember,
                 ),
               ..._members.map((m) => ListTile(
                 leading: UserAvatar(url: m.user?.avatarUrl, name: m.user?.name ?? '?', radius: 22),
@@ -106,6 +117,7 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
                         if (v == 'make_admin') await ref.read(groupServiceProvider).toggleAdmin(widget.groupId, m.userId, true);
                         if (v == 'remove_admin') await ref.read(groupServiceProvider).toggleAdmin(widget.groupId, m.userId, false);
                         if (v == 'remove') { await ref.read(groupServiceProvider).removeMember(widget.groupId, m.userId); }
+                        ref.invalidate(groupsProvider);
                         _load();
                       },
                       itemBuilder: (_) => [
@@ -125,7 +137,7 @@ class _GroupInfoScreenState extends ConsumerState<GroupInfoScreen> {
               title: const Text('Leave Group', style: TextStyle(color: AppColors.error)),
               onTap: () async {
                 await ref.read(groupServiceProvider).leaveGroup(widget.groupId);
-                ref.refresh(groupsProvider);
+                ref.invalidate(groupsProvider);
                 if (!context.mounted) return;
                 context.go('/home');
               },

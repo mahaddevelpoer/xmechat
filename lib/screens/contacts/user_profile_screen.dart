@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
-import '../../widgets/common/user_avatar.dart';
+
 
 class UserProfileScreen extends ConsumerWidget {
   final String userId;

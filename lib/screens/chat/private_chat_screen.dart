@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
@@ -33,6 +34,8 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
   bool _showEmoji = false;
   bool _isRecording = false;
   bool _uploading = false;
+  bool _isMuted = false;
+  String _wallpaperPath = '';
   MessageModel? _replyTo;
   List<MessageModel> _messages = [];
   UserModel? _otherUser;
@@ -45,6 +48,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     _loadMessages();
     _markRead();
     _loadOtherUser();
+    _loadChatPrefs();
   }
 
   Future<void> _loadMessages() async {
@@ -69,12 +73,143 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     await ref.read(chatServiceProvider).markAllRead(widget.chatId);
   }
 
+  Future<void> _loadChatPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _isMuted = prefs.getBool('mute_${widget.chatId}') ?? false;
+      _wallpaperPath = prefs.getString('wallpaper_${widget.chatId}') ?? '';
+    });
+  }
+
+  Future<void> _toggleMute() async {
+    final prefs = await SharedPreferences.getInstance();
+    final newVal = !_isMuted;
+    await prefs.setBool('mute_${widget.chatId}', newVal);
+    if (!mounted) return;
+    setState(() => _isMuted = newVal);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(newVal ? 'Chat muted' : 'Chat unmuted'),
+        backgroundColor: AppColors.primaryGreen));
+  }
+
+  Future<void> _pickWallpaper() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.first.path;
+    if (path == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('wallpaper_${widget.chatId}', path);
+    if (!mounted) return;
+    setState(() => _wallpaperPath = path);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Wallpaper set!'),
+        backgroundColor: AppColors.primaryGreen));
+  }
+
+  Future<void> _confirmBlock() async {
+    if (_otherUser == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Block User'),
+        content: Text('Block ${_otherUser!.name}? They won\'t be able to send you messages.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+              minimumSize: Size.zero,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10)),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      final messenger = ScaffoldMessenger.of(context);
+      final goRouter = GoRouter.of(context);
+      await ref.read(chatServiceProvider).blockUser(_otherUser!.id);
+      messenger.showSnackBar(
+        SnackBar(content: Text('${_otherUser!.name} blocked'),
+          backgroundColor: AppColors.error));
+      if (goRouter.canPop()) {
+        goRouter.pop();
+      }
+    }
+  }
+
+  void _searchMessages() {
+    final searchCtrl = TextEditingController();
+    List<MessageModel> results = [];
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Search Messages'),
+          content: SizedBox(
+            width: 400,
+            height: 350,
+            child: Column(children: [
+              TextField(
+                controller: searchCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Type to search...',
+                  prefixIcon: const Icon(Icons.search),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onChanged: (q) {
+                  setDialogState(() {
+                    results = q.isEmpty ? [] : _messages.where((m) =>
+                      m.text.toLowerCase().contains(q.toLowerCase())).toList();
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: results.isEmpty
+                  ? Center(child: Text(
+                      searchCtrl.text.isEmpty ? 'Start typing to search' : 'No results',
+                      style: const TextStyle(color: AppColors.textHint)))
+                  : ListView.builder(
+                      itemCount: results.length,
+                      itemBuilder: (_, i) {
+                        final msg = results[i];
+                        return ListTile(
+                          title: Text(msg.text, maxLines: 2, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(msg.createdAt.toString().substring(0, 16),
+                            style: const TextStyle(fontSize: 11, color: AppColors.textHint)),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            final idx = _messages.indexOf(msg);
+                            if (idx >= 0 && _scrollCtrl.hasClients) {
+                              _scrollCtrl.animateTo(
+                                idx * 72.0,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOut,
+                              );
+                            }
+                          },
+                        );
+                      },
+                    ),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _sendText() async {
     final text = _textCtrl.text.trim();
     if (text.isEmpty) return;
     _textCtrl.clear();
     setState(() => _showEmoji = false);
-    final myId = ref.read(authServiceProvider).currentUserId;
     final msg = await ref.read(chatServiceProvider).sendTextMessage(
       chatId: widget.chatId,
       receiverId: _otherUser?.id ?? '',
@@ -120,7 +255,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
           ? MessageType.audio : MessageType.document;
       final msg = await ref.read(chatServiceProvider).sendMediaMessage(
         chatId: widget.chatId, receiverId: _otherUser?.id ?? '',
-        bytes: file.bytes!, type: type, fileName: file.name, fileSize: file.size,
+        bytes: file.bytes!, type: type, fileName: file.name,
       );
       if (mounted) setState(() => _messages.add(msg));
       _scrollToBottom();
@@ -141,8 +276,37 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
       if (mounted) setState(() => _messages.add(msg));
       _scrollToBottom();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Location error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location error: $e')));
+      }
+    }
+  }
+
+  Future<void> _sendContact() async {
+    String name = '';
+    String phone = '';
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Send Contact'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(decoration: const InputDecoration(labelText: 'Name'), onChanged: (v) => name = v),
+          TextField(decoration: const InputDecoration(labelText: 'Phone'), onChanged: (v) => phone = v),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Send')),
+        ],
+      ),
+    );
+    if (result == true && name.isNotEmpty && phone.isNotEmpty) {
+      final msg = await ref.read(chatServiceProvider).sendContact(
+        chatId: widget.chatId, receiverId: _otherUser?.id ?? '',
+        contactName: name, contactPhone: phone,
+      );
+      if (mounted) setState(() => _messages.add(msg));
+      _scrollToBottom();
     }
   }
 
@@ -158,19 +322,8 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     final path = await _recorder.stop();
     setState(() => _isRecording = false);
     if (path == null) return;
-    final bytes = await Uint8List.fromList(await FilePicker.platform.pickFiles().then((_) => <int>[]));
-    // Read the file bytes directly
-    final fileBytes = await (await FilePicker.platform.pickFiles()).then((_) async {
-      // Simple read workaround
-      return Uint8List(0);
-    });
-    // Use dart:io to read
-    import_dart_io: {
-      // ignore: avoid_print
-    }
     setState(() => _uploading = true);
     try {
-      final f = await FilePicker.platform.pickFiles().then((_) => null);
       // Read actual audio file
       final audioBytes = await _readFileBytes(path);
       if (audioBytes.isEmpty) return;
@@ -187,9 +340,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
 
   Future<Uint8List> _readFileBytes(String path) async {
     try {
-      final data = await FilePicker.platform.pickFiles(withData: true);
-      // Return empty for now - in real app use dart:io File(path).readAsBytes()
-      return Uint8List(0);
+      return await File(path).readAsBytes();
     } catch (_) { return Uint8List(0); }
   }
 
@@ -217,18 +368,21 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
         onReply: () { setState(() => _replyTo = msg); Navigator.pop(context); },
         onCopy: () { Clipboard.setData(ClipboardData(text: msg.text)); Navigator.pop(context); },
         onStar: () async {
+          final nav = Navigator.of(context);
           await ref.read(chatServiceProvider).toggleStar(msg.id, !msg.isStarred);
-          Navigator.pop(context);
+          nav.pop();
           _loadMessages();
         },
         onDelete: (forAll) async {
+          final nav = Navigator.of(context);
           await ref.read(chatServiceProvider).deleteMessage(msg.id, forEveryone: forAll);
-          Navigator.pop(context);
+          nav.pop();
           _loadMessages();
         },
         onReact: (emoji) async {
+          final nav = Navigator.of(context);
           await ref.read(chatServiceProvider).addReaction(msg.id, emoji);
-          Navigator.pop(context);
+          nav.pop();
           _loadMessages();
         },
       ),
@@ -280,7 +434,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
               if (_otherUser == null) return;
               final callId = await ref.read(webrtcServiceProvider)
                   .initiateCall(_otherUser!.id, isVideo: true);
-              if (!mounted) return;
+              if (!context.mounted) return;
               context.push('/video-call/$callId', extra: {'isCaller': true, 'user': _otherUser});
             },
           ),
@@ -290,20 +444,31 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
               if (_otherUser == null) return;
               final callId = await ref.read(webrtcServiceProvider)
                   .initiateCall(_otherUser!.id, isVideo: false);
-              if (!mounted) return;
+              if (!context.mounted) return;
               context.push('/voice-call/$callId', extra: {'isCaller': true, 'user': _otherUser});
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: _searchMessages,
+          ),
           PopupMenuButton<String>(
-            onSelected: (v) {
+            onSelected: (v) async {
               if (v == 'info') context.push('/chat-info/${widget.chatId}');
-              if (v == 'search') {}
-              if (v == 'wallpaper') {}
+              if (v == 'mute') await _toggleMute();
+              if (v == 'wallpaper') await _pickWallpaper();
+              if (v == 'clear') {
+                await ref.read(chatServiceProvider).clearChat(widget.chatId);
+                _loadMessages();
+              }
+              if (v == 'block') await _confirmBlock();
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'info', child: Text('Contact info')),
-              PopupMenuItem(value: 'search', child: Text('Search')),
-              PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper')),
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'info', child: Text('Contact info')),
+              PopupMenuItem(value: 'mute', child: Text(_isMuted ? 'Unmute notifications' : 'Mute notifications')),
+              const PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper')),
+              const PopupMenuItem(value: 'clear', child: Text('Clear chat')),
+              const PopupMenuItem(value: 'block', child: Text('Block')),
             ],
           ),
         ],
@@ -311,9 +476,18 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
       body: Column(children: [
         if (_uploading) const LinearProgressIndicator(color: AppColors.accentGreen),
         Expanded(
-          child: _messages.isEmpty
-            ? const Center(child: Text('No messages yet', style: TextStyle(color: AppColors.textHint)))
-            : ListView.builder(
+          child: Container(
+            decoration: _wallpaperPath.isNotEmpty
+              ? BoxDecoration(
+                  image: DecorationImage(
+                    image: FileImage(File(_wallpaperPath)),
+                    fit: BoxFit.cover,
+                  ),
+                )
+              : null,
+            child: _messages.isEmpty
+              ? const Center(child: Text('No messages yet', style: TextStyle(color: AppColors.textHint)))
+              : ListView.builder(
                 controller: _scrollCtrl,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                 itemCount: _messages.length,
@@ -335,11 +509,13 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                   return MessageBubble(
                     message: msg,
                     isMe: msg.senderId == myId,
+                    otherUserName: _otherUser?.name ?? 'Unknown',
                     onLongPress: () => _onMessageLongPress(msg),
                     onReply: (m) => setState(() => _replyTo = m),
                   );
                 },
               ),
+          ),
         ),
         if (_replyTo != null)
           ReplyPreview(
@@ -380,8 +556,13 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
           _AttachItem(icon: Icons.camera_alt, label: 'Camera', color: Colors.red, onTap: () { Navigator.pop(context); _sendImage(camera: true); }),
           _AttachItem(icon: Icons.attach_file, label: 'Document', color: Colors.blue, onTap: () { Navigator.pop(context); _sendFile(); }),
           _AttachItem(icon: Icons.location_on, label: 'Location', color: Colors.green, onTap: () { Navigator.pop(context); _sendLocation(); }),
-          _AttachItem(icon: Icons.contact_page, label: 'Contact', color: Colors.orange, onTap: () { Navigator.pop(context); }),
-          _AttachItem(icon: Icons.gif, label: 'GIF', color: Colors.teal, onTap: () { Navigator.pop(context); }),
+          _AttachItem(icon: Icons.contact_page, label: 'Contact', color: Colors.orange, onTap: () { Navigator.pop(context); _sendContact(); }),
+          _AttachItem(icon: Icons.gif, label: 'GIF', color: Colors.teal, onTap: () { 
+            Navigator.pop(context); 
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('GIF support coming soon!'),
+                backgroundColor: AppColors.primaryGreen));
+          }),
         ]),
       ),
     );

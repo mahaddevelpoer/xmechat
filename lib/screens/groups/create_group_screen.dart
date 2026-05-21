@@ -8,6 +8,7 @@ import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/user_avatar.dart';
+import '../../widgets/add_group_member_sheet.dart';
 
 class CreateGroupScreen extends ConsumerStatefulWidget {
   const CreateGroupScreen({super.key});
@@ -22,10 +23,20 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   final Set<String> _selectedIds = {};
   bool _loading = false;
 
+  Future<void> _addMemberByEmailOrPhone() async {
+    final user = await showDialog<UserModel?>(
+      context: context,
+      builder: (_) => const AddGroupMemberSheet(),
+    );
+    if (user == null) return;
+    setState(() => _selectedIds.add(user.id));
+  }
+
   Future<void> _pickIcon() async {
     final img = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 75);
     if (img == null) return;
-    setState(() async => _iconBytes = await img.readAsBytes());
+    final bytes = await img.readAsBytes();
+    setState(() => _iconBytes = bytes);
   }
 
   Future<void> _create() async {
@@ -45,7 +56,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
         memberIds: _selectedIds.toList(),
         iconBytes: _iconBytes,
       );
-      ref.refresh(groupsProvider);
+      ref.invalidate(groupsProvider);
       if (!mounted) return;
       context.pushReplacement('/group-chat/${group.id}', extra: {'group': group});
     } catch (e) {
@@ -153,6 +164,18 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             },
           ),
         )),
+        // Add member via email/phone (required)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _addMemberByEmailOrPhone,
+              icon: const Icon(Icons.person_add_alt_1),
+              label: const Text('Add member by email/phone'),
+            ),
+          ),
+        ),
         // Create button
         Padding(
           padding: const EdgeInsets.all(16),

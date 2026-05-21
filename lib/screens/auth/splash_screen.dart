@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -46,28 +45,17 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.primaryGreen,
+      backgroundColor: Colors.white,
       body: Center(
         child: FadeTransition(
           opacity: _fade,
           child: ScaleTransition(
             scale: _scale,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                width: 100, height: 100,
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(30),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Icon(Icons.chat_bubble_rounded, size: 60, color: Colors.white),
-              ),
-              const SizedBox(height: 24),
-              const Text('XmeChat', style: TextStyle(
-                color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold, letterSpacing: 1)),
-              const SizedBox(height: 8),
-              Text('Powered by Supabase', style: TextStyle(
-                color: Colors.white.withAlpha(180), fontSize: 13)),
-            ]),
+            child: Icon(
+              Icons.chat_bubble_outline,
+              size: 80,
+              color: Colors.grey.shade300,
+            ),
           ),
         ),
       ),

@@ -18,7 +18,9 @@ class SupabaseConstants {
 
   // Tables
   static const String usersTable = 'users';
-  static const String chatsTable = 'chats';
+  // NOTE: XmeChat uses "conversations" as the 1:1 chat container (per spec).
+  // We keep the constant name "chatsTable" to avoid touching many call sites.
+  static const String chatsTable = 'conversations';
   static const String messagesTable = 'messages';
   static const String groupsTable = 'groups';
   static const String groupMembersTable = 'group_members';

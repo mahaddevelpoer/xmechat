@@ -95,8 +95,12 @@ class GroupService {
   }
 
   Future<void> addMembers(String groupId, List<String> userIds) async {
-    await _db.from(SupabaseConstants.groupMembersTable).insert(
-      userIds.map((id) => {'group_id': groupId, 'user_id': id, 'is_admin': false}).toList(),
+    // Use upsert to avoid duplicate-member errors if user is already in group.
+    await _db.from(SupabaseConstants.groupMembersTable).upsert(
+      userIds
+          .where((id) => id.isNotEmpty)
+          .map((id) => {'group_id': groupId, 'user_id': id, 'is_admin': false})
+          .toList(),
     );
   }
 
@@ -144,6 +148,31 @@ class GroupService {
     await _db.from(SupabaseConstants.pollVotesTable).upsert({
       'poll_id': pollId, 'user_id': _uid, 'option_index': optionIndex,
     });
+  }
+
+  Future<PollModel?> getPoll(String pollId) async {
+    final data = await _db.from(SupabaseConstants.pollsTable)
+        .select()
+        .eq('id', pollId)
+        .maybeSingle();
+    return data == null ? null : PollModel.fromMap(data);
+  }
+
+  Future<Map<int, int>> getPollCounts(String pollId) async {
+    final rows = await _db.from(SupabaseConstants.pollVotesTable)
+        .select('option_index')
+        .eq('poll_id', pollId);
+    final counts = <int, int>{};
+    for (final r in rows) {
+      final idx = r['option_index'];
+      if (idx is int) {
+        counts[idx] = (counts[idx] ?? 0) + 1;
+      } else {
+        final parsed = int.tryParse(idx?.toString() ?? '');
+        if (parsed != null) counts[parsed] = (counts[parsed] ?? 0) + 1;
+      }
+    }
+    return counts;
   }
 
   Future<bool> isAdmin(String groupId) async {

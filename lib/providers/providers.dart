@@ -117,6 +117,11 @@ final userOnlineProvider = FutureProvider.autoDispose.family<UserModel?, String>
   return ref.read(chatServiceProvider).getUserById(userId);
 });
 
+final userStreamProvider =
+    StreamProvider.autoDispose.family<UserModel?, String>((ref, userId) {
+  return ref.read(chatServiceProvider).streamUser(userId);
+});
+
 // ── Stream Messages Realtime ──────────────────────
 final streamMessagesProvider = StreamProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, chatId) {
   return ref.read(chatServiceProvider).streamMessages(chatId);
@@ -125,4 +130,9 @@ final streamMessagesProvider = StreamProvider.autoDispose.family<List<Map<String
 // ── Stream Group Messages Realtime ────────────────
 final streamGroupMessagesProvider = StreamProvider.autoDispose.family<List<Map<String, dynamic>>, String>((ref, groupId) {
   return ref.read(groupServiceProvider).streamGroupMessages(groupId);
+});
+
+// ── Chats Stream (alias for desktop sidebar) ──────
+final chatsStreamProvider = FutureProvider.autoDispose<List<ChatModel>>((ref) async {
+  return ref.read(chatServiceProvider).fetchChats();
 });

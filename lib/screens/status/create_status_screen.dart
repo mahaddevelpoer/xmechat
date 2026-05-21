@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
-import '../../widgets/common/custom_button.dart';
+
 
 class CreateStatusScreen extends ConsumerStatefulWidget {
   const CreateStatusScreen({super.key});
@@ -36,7 +36,8 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
     final picker = ImagePicker();
     final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
     if (img == null) return;
-    setState(() async => _imageBytes = await img.readAsBytes());
+    final bytes = await img.readAsBytes();
+    setState(() => _imageBytes = bytes);
   }
 
   Future<void> _post() async {
@@ -46,7 +47,7 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
       if (_tabCtrl.index == 0 && _textCtrl.text.trim().isNotEmpty) {
         await svc.postTextStatus(
           text: _textCtrl.text.trim(),
-          bgColor: '#${_bgColor.value.toRadixString(16).padLeft(8, '0').substring(2)}',
+          bgColor: '#${_bgColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
         );
       } else if (_tabCtrl.index == 1 && _imageBytes != null) {
         await svc.postImageStatus(_imageBytes!);
@@ -55,10 +56,12 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
           const SnackBar(content: Text('Please add content')));
         return;
       }
+      await Future.wait([
+        ref.refresh(myStatusesProvider.future),
+        ref.refresh(statusesProvider.future),
+      ]);
       if (!mounted) return;
       Navigator.pop(context);
-      ref.refresh(myStatusesProvider);
-      ref.refresh(statusesProvider);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -61,7 +61,7 @@ class AuthService {
 
   // ── Update Profile Picture ────────────────────────
   Future<String> uploadAvatar(Uint8List bytes, String ext) async {
-    final path = '${currentUserId}/avatar.$ext';
+    final path = '$currentUserId/avatar.$ext';
     await _client.storage
         .from(SupabaseConstants.avatarsBucket)
         .uploadBinary(path, bytes, fileOptions: FileOptions(upsert: true, contentType: 'image/$ext'));
@@ -93,5 +93,15 @@ class AuthService {
     if (avatarUrl != null) updates['avatar_url'] = avatarUrl;
     if (updates.isEmpty) return;
     await _client.from(SupabaseConstants.usersTable).update(updates).eq('id', currentUserId);
+  }
+
+  // ── Delete Account ────────────────────────────────
+  Future<void> deleteAccount() async {
+    if (currentUserId.isEmpty) return;
+    // Delete user data from all tables
+    await _client.from(SupabaseConstants.messagesTable).delete().eq('sender_id', currentUserId);
+    await _client.from(SupabaseConstants.usersTable).delete().eq('id', currentUserId);
+    // Sign out (auth user deletion requires service_role key on server side)
+    await _client.auth.signOut();
   }
 }

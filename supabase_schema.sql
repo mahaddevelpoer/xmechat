@@ -561,3 +561,4 @@ CREATE POLICY "otp read own email" ON public.otp_codes
   FOR SELECT USING (auth.email() = email);
 CREATE POLICY "otp update own email" ON public.otp_codes
   FOR UPDATE USING (auth.email() = email);
+

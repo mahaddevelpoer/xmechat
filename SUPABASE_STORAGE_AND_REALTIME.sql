@@ -28,7 +28,8 @@ begin
     for select using (true);
 exception when duplicate_object then
   null;
-end $$;
+end;
+$$;
 
 -- Authenticated users can upload to these buckets
 do $$
@@ -41,7 +42,8 @@ begin
     );
 exception when duplicate_object then
   null;
-end $$;
+end;
+$$;
 
 -- Authenticated users can update/delete their own uploaded objects
 do $$
@@ -52,7 +54,8 @@ begin
     with check (auth.uid() = owner);
 exception when duplicate_object then
   null;
-end $$;
+end;
+$$;
 
 do $$
 begin
@@ -61,7 +64,8 @@ begin
     using (auth.uid() = owner);
 exception when duplicate_object then
   null;
-end $$;
+end;
+$$;
 
 -- ------------------------------------------------------------
 -- 3) Enable Realtime for tables used by .stream(...)
@@ -124,5 +128,7 @@ begin
   ) then
     execute 'alter publication supabase_realtime add table public.calls';
   end if;
-end $$;
+end;
+$$;
+
 

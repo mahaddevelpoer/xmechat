@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
 import '../../widgets/common/user_avatar.dart';
@@ -39,11 +40,25 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    final img = await ImagePicker().pickImage(
-        source: ImageSource.gallery, imageQuality: 80, maxWidth: 600);
-    if (img == null) return;
-    final bytes = await img.readAsBytes();
-    setState(() => _avatarBytes = bytes);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      Uint8List? bytes;
+      if (file.bytes != null) {
+        bytes = file.bytes;
+      } else if (file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes != null) {
+        setState(() => _avatarBytes = bytes);
+      }
+    } catch (e) {
+      debugPrint('Error picking avatar: $e');
+    }
   }
 
   Future<void> _save() async {

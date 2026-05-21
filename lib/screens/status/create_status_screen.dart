@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
 
@@ -33,11 +34,25 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen>
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (img == null) return;
-    final bytes = await img.readAsBytes();
-    setState(() => _imageBytes = bytes);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      Uint8List? bytes;
+      if (file.bytes != null) {
+        bytes = file.bytes;
+      } else if (file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes != null) {
+        setState(() => _imageBytes = bytes);
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+    }
   }
 
   Future<void> _post() async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
@@ -21,6 +22,7 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
   UserModel? _otherUser;
   List<MessageModel> _messages = [];
   bool _loading = true;
+  int _disappearTimer = 0;
 
   @override
   void initState() {
@@ -37,8 +39,6 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
 
   Future<void> _loadData() async {
     final chatService = ref.read(chatServiceProvider);
-
-    // Load messages (all, not just 50)
     final msgs = await chatService.fetchMessages(widget.chatId, limit: 500);
     final chats = await chatService.fetchChats();
     final chat = chats.firstWhere(
@@ -56,6 +56,7 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
       _otherUser = user;
       _messages = msgs;
       _loading = false;
+      _disappearTimer = chat.disappearTimer;
     });
   }
 
@@ -71,6 +72,32 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
           m.type == MessageType.text &&
           (m.text.contains('http://') || m.text.contains('https://')))
       .toList();
+
+  Future<void> _setDisappearTimer(int seconds) async {
+    final supabase = Supabase.instance.client;
+    await supabase.from('conversations')
+        .update({'disappear_timer': seconds}).eq('id', widget.chatId);
+    if (!mounted) return;
+    setState(() => _disappearTimer = seconds);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(seconds == 0
+              ? 'Disappearing messages off'
+              : 'Messages will disappear after ${_formatTimer(seconds)}'),
+          backgroundColor: AppColors.primaryGreen,
+        ),
+      );
+    }
+  }
+
+  String _formatTimer(int seconds) {
+    if (seconds <= 0) return 'Off';
+    if (seconds == 86400) return '24 hours';
+    if (seconds == 604800) return '7 days';
+    if (seconds == 2592000) return '90 days';
+    return '$seconds sec';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -101,8 +128,7 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
                     const SizedBox(height: 12),
                     Text(_otherUser?.name ?? '',
                         style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 20, fontWeight: FontWeight.bold,
                             color: AppColors.textPrimary)),
                     const SizedBox(height: 4),
                     Text(
@@ -136,13 +162,71 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
             ),
           ),
         ],
-        body: TabBarView(
-          controller: _tabCtrl,
-          children: [
-            _buildMediaGrid(),
-            _buildDocsList(),
-            _buildLinksList(),
-          ],
+        body: Column(children: [
+          Container(
+            color: Colors.white,
+            child: ListTile(
+              leading: Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryGreen.withAlpha(20),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.timer_outlined,
+                    color: AppColors.primaryGreen, size: 22),
+              ),
+              title: const Text('Disappearing messages',
+                  style: TextStyle(fontWeight: FontWeight.w500)),
+              subtitle: Text(_formatTimer(_disappearTimer),
+                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showDisappearPicker(),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: TabBarView(
+              controller: _tabCtrl,
+              children: [
+                _buildMediaGrid(),
+                _buildDocsList(),
+                _buildLinksList(),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  void _showDisappearPicker() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Disappearing messages',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('Messages will disappear from this chat after the selected duration.',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+            const SizedBox(height: 16),
+            _TimerOption(label: 'Off', seconds: 0, selected: _disappearTimer == 0, onTap: () {
+              Navigator.pop(context); _setDisappearTimer(0);
+            }),
+            _TimerOption(label: '24 hours', seconds: 86400, selected: _disappearTimer == 86400, onTap: () {
+              Navigator.pop(context); _setDisappearTimer(86400);
+            }),
+            _TimerOption(label: '7 days', seconds: 604800, selected: _disappearTimer == 604800, onTap: () {
+              Navigator.pop(context); _setDisappearTimer(604800);
+            }),
+            _TimerOption(label: '90 days', seconds: 2592000, selected: _disappearTimer == 2592000, onTap: () {
+              Navigator.pop(context); _setDisappearTimer(2592000);
+            }),
+          ]),
         ),
       ),
     );
@@ -315,6 +399,27 @@ class _ChatInfoScreenState extends ConsumerState<ChatInfoScreen>
       return 'Today ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     }
     return '${dt.day}/${dt.month}/${dt.year}';
+  }
+}
+
+class _TimerOption extends StatelessWidget {
+  final String label;
+  final int seconds;
+  final bool selected;
+  final VoidCallback onTap;
+  const _TimerOption({required this.label, required this.seconds, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(label, style: TextStyle(
+          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          color: selected ? AppColors.primaryGreen : AppColors.textPrimary)),
+      trailing: selected
+          ? const Icon(Icons.check_circle, color: AppColors.primaryGreen)
+          : null,
+      onTap: onTap,
+    );
   }
 }
 

@@ -65,6 +65,7 @@ create table conversations (
     last_message      text,
     last_message_at   timestamp with time zone default now(),
     last_message_type varchar default 'text',
+    disappear_timer   int default 0,
     created_at        timestamp with time zone default now()
 );
 
@@ -322,6 +323,43 @@ create table otp_codes (
   created_at timestamp with time zone default now()
 );
 
+-- Broadcast Lists Table
+create table broadcast_lists (
+    id          uuid primary key default uuid_generate_v4(),
+    name        varchar not null,
+    created_by  uuid references users(id) on delete cascade,
+    created_at  timestamp with time zone default now()
+);
+
+create index idx_broadcast_creator on broadcast_lists(created_by);
+
+-- Broadcast List Members Table
+create table broadcast_list_members (
+    id          uuid primary key default uuid_generate_v4(),
+    list_id     uuid references broadcast_lists(id) on delete cascade,
+    user_id     uuid references users(id) on delete cascade,
+    created_at  timestamp with time zone default now(),
+    unique(list_id, user_id)
+);
+
+create index idx_blm_list on broadcast_list_members(list_id);
+create index idx_blm_user on broadcast_list_members(user_id);
+
+-- Broadcast Messages Table
+create table broadcast_messages (
+    id          uuid primary key default uuid_generate_v4(),
+    list_id     uuid references broadcast_lists(id) on delete cascade,
+    sender_id   uuid references users(id) on delete cascade,
+    text        text,
+    type        varchar default 'text',
+    media_url   varchar,
+    file_name   varchar,
+    created_at  timestamp with time zone default now()
+);
+
+create index idx_broadcast_msg_list on broadcast_messages(list_id);
+create index idx_broadcast_msg_created on broadcast_messages(created_at);
+
 -- ----------------------------------------------------------------
 -- 3. ENABLE ROW LEVEL SECURITY (RLS)
 -- ----------------------------------------------------------------
@@ -344,6 +382,9 @@ alter table saved_contacts enable row level security;
 alter table polls enable row level security;
 alter table poll_votes enable row level security;
 alter table otp_codes enable row level security;
+alter table broadcast_lists enable row level security;
+alter table broadcast_list_members enable row level security;
+alter table broadcast_messages enable row level security;
 
 -- ----------------------------------------------------------------
 -- 4. POLICIES
@@ -527,6 +568,29 @@ create policy "poll vote read members" on poll_votes for select
     )
   );
 
+-- Broadcast Lists policies
+create policy "broadcast lists read own" on broadcast_lists for select using (auth.uid() = created_by);
+create policy "broadcast lists insert own" on broadcast_lists for insert with check (auth.uid() = created_by);
+create policy "broadcast lists update own" on broadcast_lists for update using (auth.uid() = created_by);
+create policy "broadcast lists delete own" on broadcast_lists for delete using (auth.uid() = created_by);
+
+-- Broadcast List Members policies (creator can manage, members can read)
+create policy "blm read creator or member" on broadcast_list_members for select
+  using (auth.uid() = (select created_by from broadcast_lists where id = list_id) or auth.uid() = user_id);
+create policy "blm insert creator" on broadcast_list_members for insert
+  with check (auth.uid() = (select created_by from broadcast_lists where id = list_id));
+create policy "blm delete creator" on broadcast_list_members for delete
+  using (auth.uid() = (select created_by from broadcast_lists where id = list_id));
+
+-- Broadcast Messages policies
+create policy "bm read list members" on broadcast_messages for select
+  using (auth.uid() = (select created_by from broadcast_lists where id = list_id)
+      or auth.uid() in (select user_id from broadcast_list_members where list_id = list_id));
+create policy "bm insert creator" on broadcast_messages for insert
+  with check (auth.uid() = (select created_by from broadcast_lists where id = list_id));
+create policy "bm delete creator" on broadcast_messages for delete
+  using (auth.uid() = (select created_by from broadcast_lists where id = list_id));
+
 -- OTP Codes policies
 create policy "otp insert own email" on otp_codes for insert
   with check (auth.email() = email);
@@ -621,4 +685,5 @@ alter publication supabase_realtime add table public.conversations;
 alter publication supabase_realtime add table public.messages;
 alter publication supabase_realtime add table public.group_messages;
 alter publication supabase_realtime add table public.calls;
+alter publication supabase_realtime add table public.broadcast_messages;
 

@@ -90,6 +90,7 @@ class ChatModel {
   final DateTime lastMessageAt;
   final String lastMessageType;
   final DateTime createdAt;
+  int disappearTimer;
   UserModel? otherUser;
   int unreadCount;
 
@@ -101,6 +102,7 @@ class ChatModel {
     required this.lastMessageAt,
     this.lastMessageType = 'text',
     required this.createdAt,
+    this.disappearTimer = 0,
     this.otherUser,
     this.unreadCount = 0,
   });
@@ -111,8 +113,8 @@ class ChatModel {
   /// - conversations(participant_1, participant_2)
   factory ChatModel.fromMap(Map<String, dynamic> map) => ChatModel(
     id: map['id'] ?? '',
-    user1Id: (map['participant_1'] ?? map['user1_id'] ?? '').toString(),
-    user2Id: (map['participant_2'] ?? map['user2_id'] ?? '').toString(),
+    user1Id: map['participant_1'] ?? map['user1_id'] ?? '',
+    user2Id: map['participant_2'] ?? map['user2_id'] ?? '',
     lastMessage: map['last_message'] ?? '',
     lastMessageAt: map['last_message_at'] != null
         ? DateTime.parse(map['last_message_at']).toLocal()
@@ -121,6 +123,7 @@ class ChatModel {
     createdAt: map['created_at'] != null
         ? DateTime.parse(map['created_at']).toLocal()
         : DateTime.now(),
+    disappearTimer: map['disappear_timer'] ?? 0,
   );
 
   String getOtherUserId(String myId) => user1Id == myId ? user2Id : user1Id;
@@ -658,6 +661,76 @@ class PollModel {
     question: map['question'] ?? '',
     options: List<String>.from(map['options'] ?? []),
     allowMultiple: map['allow_multiple'] ?? false,
+    createdAt: map['created_at'] != null
+        ? DateTime.parse(map['created_at']).toLocal()
+        : DateTime.now(),
+  );
+}
+
+/// Broadcast List Model
+class BroadcastListModel {
+  final String id;
+  final String name;
+  final String createdBy;
+  final DateTime createdAt;
+  List<UserModel> members;
+
+  BroadcastListModel({
+    required this.id,
+    required this.name,
+    required this.createdBy,
+    required this.createdAt,
+    this.members = const [],
+  });
+
+  factory BroadcastListModel.fromMap(Map<String, dynamic> map) => BroadcastListModel(
+    id: map['id'] ?? '',
+    name: map['name'] ?? '',
+    createdBy: map['created_by'] ?? '',
+    createdAt: map['created_at'] != null
+        ? DateTime.parse(map['created_at']).toLocal()
+        : DateTime.now(),
+    members: map['members'] != null
+        ? (map['members'] as List).map((m) => UserModel.fromMap(m['user'] ?? {})).toList()
+        : [],
+  );
+
+  Map<String, dynamic> toMap() => {
+    'name': name,
+    'created_by': createdBy,
+  };
+}
+
+/// Broadcast Message Model
+class BroadcastMessageModel {
+  final String id;
+  final String listId;
+  final String senderId;
+  final String text;
+  final String type;
+  final String mediaUrl;
+  final String fileName;
+  final DateTime createdAt;
+
+  BroadcastMessageModel({
+    required this.id,
+    required this.listId,
+    required this.senderId,
+    this.text = '',
+    this.type = 'text',
+    this.mediaUrl = '',
+    this.fileName = '',
+    required this.createdAt,
+  });
+
+  factory BroadcastMessageModel.fromMap(Map<String, dynamic> map) => BroadcastMessageModel(
+    id: map['id'] ?? '',
+    listId: map['list_id'] ?? '',
+    senderId: map['sender_id'] ?? '',
+    text: map['text'] ?? '',
+    type: map['type'] ?? 'text',
+    mediaUrl: map['media_url'] ?? '',
+    fileName: map['file_name'] ?? '',
     createdAt: map['created_at'] != null
         ? DateTime.parse(map['created_at']).toLocal()
         : DateTime.now(),

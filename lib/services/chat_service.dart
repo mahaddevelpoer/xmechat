@@ -363,22 +363,24 @@ class ChatService {
   }
 
   Future<void> clearChat(String chatId) async {
-    final msgs = await _db
-        .from(SupabaseConstants.messagesTable)
-        .select('id, sender_id')
-        .eq('chat_id', chatId);
-    for (final m in msgs) {
-      if (m['sender_id'] == _uid) {
-        await _db
-            .from(SupabaseConstants.messagesTable)
-            .update({'deleted_for_sender': true})
-            .eq('id', m['id']);
-      } else {
-        await _db
-            .from(SupabaseConstants.messagesTable)
-            .update({'deleted_for_receiver': true})
-            .eq('id', m['id']);
-      }
+    await _db.from(SupabaseConstants.messagesTable)
+        .update({'deleted_for_sender': true}).eq('chat_id', chatId).eq('sender_id', _uid);
+    await _db.from(SupabaseConstants.messagesTable)
+        .update({'deleted_for_receiver': true}).eq('chat_id', chatId).eq('receiver_id', _uid);
+  }
+
+  Future<void> deleteExpiredMessages() async {
+    final chats = await _db.from(SupabaseConstants.chatsTable)
+        .select('id, disappear_timer')
+        .not('disappear_timer', 'eq', 0);
+    for (final chat in chats) {
+      final timer = chat['disappear_timer'] as int;
+      if (timer <= 0) continue;
+      final cutoff = DateTime.now().toUtc().subtract(Duration(seconds: timer)).toIso8601String();
+      await _db.from(SupabaseConstants.messagesTable)
+          .update({'deleted_for_everyone': true})
+          .eq('chat_id', chat['id'] as String)
+          .lt('created_at', cutoff);
     }
   }
 

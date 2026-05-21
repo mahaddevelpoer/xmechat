@@ -11,12 +11,14 @@ import '../models/models.dart';
 import 'windows_notifier.dart';
 import 'message_receiver_service.dart';
 import 'call_service.dart';
+import 'chat_service.dart';
 
 class XmeChatRoot {
   static final XmeChatRoot instance = XmeChatRoot._();
   XmeChatRoot._();
 
   final _supabase = Supabase.instance.client;
+  late final ChatService _chatService;
   bool _initialized = false;
   bool _uiReady = false;
 
@@ -30,6 +32,7 @@ class XmeChatRoot {
   final List<VoidCallback> _pendingNav = [];
 
   Timer? _fallbackTimer;
+  Timer? _disappearTimer;
   final Set<String> _processedNotificationIds = {};
   DateTime? _lastPollTime;
 
@@ -119,6 +122,7 @@ class XmeChatRoot {
 
   Future<void> _attachRealtimeForUser(String userId) async {
     await _disposeRealtime();
+    _chatService = ChatService(userId);
     await MessageReceiverService.instance.start(userId);
     await CallService.instance.start(userId);
 
@@ -127,6 +131,10 @@ class XmeChatRoot {
 
     _fallbackTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
       _pollFallbackUpdates(userId);
+    });
+
+    _disappearTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      unawaited(_chatService.deleteExpiredMessages());
     });
 
     // ── Private messages INSERT (new message) ────────────────────────────────
@@ -520,6 +528,8 @@ class XmeChatRoot {
   Future<void> _disposeRealtime() async {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
+    _disappearTimer?.cancel();
+    _disappearTimer = null;
     _processedNotificationIds.clear();
     _lastPollTime = null;
 

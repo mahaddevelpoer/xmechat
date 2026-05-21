@@ -27,6 +27,9 @@ import '../screens/contacts/search_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/settings/edit_profile_screen.dart';
 import '../screens/settings/blocked_users_screen.dart';
+import '../screens/broadcast/broadcast_list_screen.dart';
+import '../screens/broadcast/create_broadcast_screen.dart';
+import '../screens/broadcast/broadcast_chat_screen.dart';
 import '../models/models.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -135,6 +138,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
       GoRoute(path: '/edit-profile', builder: (_, __) => const EditProfileScreen()),
       GoRoute(path: '/blocked-contacts', builder: (_, __) => const BlockedUsersScreen()),
+      GoRoute(path: '/broadcast-lists', builder: (_, __) => const BroadcastListScreen()),
+      GoRoute(path: '/create-broadcast', builder: (_, __) => const CreateBroadcastScreen()),
+      GoRoute(
+        path: '/broadcast-chat/:listId',
+        builder: (_, state) => BroadcastChatScreen(
+          listId: state.pathParameters['listId']!,
+          list: state.extra as BroadcastListModel?,
+        ),
+      ),
     ],
   );
 });

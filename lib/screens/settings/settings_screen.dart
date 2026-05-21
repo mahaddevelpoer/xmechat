@@ -496,6 +496,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onTap: () => context.push('/blocked-contacts'),
                 ),
                 _SettingsTile(
+                  icon: Icons.broadcast_on_home,
+                  label: 'Broadcast Lists',
+                  onTap: () => context.push('/broadcast-lists'),
+                ),
+                _SettingsTile(
                   icon: Icons.lock_reset,
                   label: 'Change Password',
                   onTap: _changePassword,

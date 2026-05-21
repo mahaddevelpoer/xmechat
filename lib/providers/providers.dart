@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
+import '../services/broadcast_service.dart';
 import '../services/chat_service.dart';
 import '../services/group_service.dart';
 import '../services/status_service.dart';
@@ -34,6 +35,11 @@ final statusServiceProvider = Provider<StatusService>((ref) {
 final webrtcServiceProvider = Provider<WebRTCService>((ref) {
   final uid = ref.watch(currentUserIdProvider);
   return WebRTCService(uid);
+});
+
+final broadcastServiceProvider = Provider<BroadcastService>((ref) {
+  final uid = ref.watch(currentUserIdProvider);
+  return BroadcastService(uid);
 });
 
 // ── Auth State ────────────────────────────────────
@@ -156,4 +162,9 @@ final enterToSendProvider = Provider<bool>((ref) {
 final fontSizeProvider = Provider<double>((ref) {
   final prefs = ref.watch(settingsProvider).valueOrNull;
   return prefs?.getDouble('font_size') ?? 14.0;
+});
+
+// ── Broadcast Lists ────────────────────────────
+final broadcastListsProvider = FutureProvider.autoDispose<List<BroadcastListModel>>((ref) async {
+  return ref.read(broadcastServiceProvider).fetchMyLists();
 });

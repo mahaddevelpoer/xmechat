@@ -9,6 +9,8 @@ import '../core/constants/supabase_constants.dart';
 import '../core/navigation/app_navigator.dart';
 import '../models/models.dart';
 import 'windows_notifier.dart';
+import 'message_receiver_service.dart';
+import 'call_service.dart';
 
 class XmeChatRoot {
   static final XmeChatRoot instance = XmeChatRoot._();
@@ -117,6 +119,8 @@ class XmeChatRoot {
 
   Future<void> _attachRealtimeForUser(String userId) async {
     await _disposeRealtime();
+    await MessageReceiverService.instance.start(userId);
+    await CallService.instance.start(userId);
 
     _lastPollTime = DateTime.now();
     _processedNotificationIds.clear();
@@ -500,11 +504,27 @@ class XmeChatRoot {
     }
   }
 
+  // ── Navigation Helpers (for services without context) ─────
+  void navigateToChat(String chatId) {
+    _navigateOrQueue(() {
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx == null) return;
+      GoRouter.of(ctx).go('/chat/$chatId');
+    });
+  }
+
+  void showIncomingCall(CallModel call) {
+    _showIncomingCallPopup(call);
+  }
+
   Future<void> _disposeRealtime() async {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
     _processedNotificationIds.clear();
     _lastPollTime = null;
+
+    await MessageReceiverService.instance.stop();
+    await CallService.instance.stop();
 
     try {
       await _messageChannel?.unsubscribe();

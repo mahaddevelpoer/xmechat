@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_colors.dart';
 import '../../providers/providers.dart';
+import '../../services/xmechat_root.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
 
@@ -24,6 +26,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       await ref.read(authServiceProvider).signIn(
         email: _emailCtrl.text.trim(), password: _passCtrl.text);
+      // Refresh all providers to clear old session data
+      ref.invalidate(currentUserIdProvider);
+      ref.invalidate(currentUserProvider);
+      ref.invalidate(chatsProvider);
+      ref.invalidate(groupsProvider);
+      ref.invalidate(statusesProvider);
+      ref.invalidate(myStatusesProvider);
+      ref.invalidate(callHistoryProvider);
+      ref.invalidate(allUsersProvider);
+      // Re-attach realtime listeners for new user
+      final uid = Supabase.instance.client.auth.currentUser?.id;
+      if (uid != null) {
+        await XmeChatRoot.instance.init();
+      }
       if (!mounted) return;
       context.go('/home');
     } catch (e) {

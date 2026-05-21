@@ -302,13 +302,22 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     if (_otherUser == null) return;
     setState(() => _uploading = true);
     try {
-      final picker = ImagePicker();
-      final img = await picker.pickImage(
-        source: camera ? ImageSource.camera : ImageSource.gallery,
-        imageQuality: 75,
-      );
-      if (img == null) return;
-      final bytes = await img.readAsBytes();
+      Uint8List? bytes;
+      String fileName = 'image_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      if (camera) {
+        final picker = ImagePicker();
+        final img = await picker.pickImage(source: ImageSource.camera, imageQuality: 75);
+        if (img == null) { if (mounted) setState(() => _uploading = false); return; }
+        bytes = await img.readAsBytes();
+        fileName = img.name;
+      } else {
+        final result = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+        if (result == null || result.files.isEmpty) { if (mounted) setState(() => _uploading = false); return; }
+        final file = result.files.first;
+        bytes = file.bytes ?? (file.path != null ? File(file.path!).readAsBytesSync() : null);
+        fileName = file.name;
+      }
+      if (bytes == null) { if (mounted) setState(() => _uploading = false); return; }
       final msg = await ref
           .read(chatServiceProvider)
           .sendMediaMessage(
@@ -316,7 +325,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
             receiverId: _otherUser!.id,
             bytes: bytes,
             type: MessageType.image,
-            fileName: img.name,
+            fileName: fileName,
           );
       if (mounted) setState(() => _messages.add(msg));
       _scrollToBottom();
@@ -963,7 +972,7 @@ class _MessageActionsSheet extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ['??', '??', '??', '??', '??', '??']
+            children: ['\u2764\uFE0F', '\uD83D\uDE06', '\uD83D\uDE02', '\uD83D\uDE22', '\uD83D\uDE0D', '\uD83D\uDE0A']
                 .map(
                   (e) => GestureDetector(
                     onTap: () => onReact(e),

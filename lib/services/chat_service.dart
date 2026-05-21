@@ -341,7 +341,13 @@ class ChatService {
   }
 
   Future<void> addReaction(String messageId, String emoji) async {
-    await _db.from(SupabaseConstants.reactionsTable).upsert({
+    // Remove existing reaction first, then insert new one
+    await _db
+        .from(SupabaseConstants.reactionsTable)
+        .delete()
+        .eq('message_id', messageId)
+        .eq('user_id', _uid);
+    await _db.from(SupabaseConstants.reactionsTable).insert({
       'message_id': messageId,
       'user_id': _uid,
       'emoji': emoji,

@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/navigation/app_navigator.dart';
+import '../providers/providers.dart';
 import '../screens/auth/splash_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/signup_screen.dart';
@@ -29,11 +30,12 @@ import '../screens/settings/blocked_users_screen.dart';
 import '../models/models.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
+  final authState = ref.watch(authStateProvider);
+  final user = authState.valueOrNull?.session?.user ?? Supabase.instance.client.auth.currentUser;
   return GoRouter(
     initialLocation: '/',
     navigatorKey: rootNavigatorKey,
     redirect: (ctx, state) {
-      final user = Supabase.instance.client.auth.currentUser;
       final isAuthRoute = state.matchedLocation.startsWith('/login') ||
           state.matchedLocation.startsWith('/signup') ||
           state.matchedLocation.startsWith('/forgot') ||

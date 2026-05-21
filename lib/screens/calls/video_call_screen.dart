@@ -29,6 +29,8 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   bool _cameraOff = false;
   bool _speakerOn = true;
   bool _connected = false;
+  bool _localStreamReady = false;
+  bool _remoteStreamReady = false;
 
   int _seconds = 0;
   Timer? _timer;
@@ -54,12 +56,18 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
   Future<void> _setupWebRTC() async {
     final webrtc = ref.read(webrtcServiceProvider);
     webrtc.onLocalStream = (stream) {
-      if (mounted) setState(() => _localRenderer.srcObject = stream);
+      if (mounted) {
+        setState(() {
+          _localRenderer.srcObject = stream;
+          _localStreamReady = true;
+        });
+      }
     };
     webrtc.onRemoteStream = (stream) {
       if (!mounted) return;
       setState(() {
         _remoteRenderer.srcObject = stream;
+        _remoteStreamReady = true;
         _connected = true;
         _startTimer();
       });
@@ -67,18 +75,27 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
     webrtc.onCallEnded = () {
       if (mounted) Navigator.pop(context);
     };
+    webrtc.onCallConnected = () {
+      if (mounted) {
+        setState(() => _connected = true);
+        _startTimer();
+      }
+    };
 
     _chatSub = webrtc.dataMessages.listen((m) {
       if (!mounted) return;
       setState(() => _chatMessages.add(m));
     });
 
-    // The call may be created/answered before this screen is pushed.
     final localStream = webrtc.localStream;
     final remoteStream = webrtc.remoteStream;
-    if (localStream != null) _localRenderer.srcObject = localStream;
+    if (localStream != null) {
+      _localRenderer.srcObject = localStream;
+      _localStreamReady = true;
+    }
     if (remoteStream != null) {
       _remoteRenderer.srcObject = remoteStream;
+      _remoteStreamReady = true;
       _connected = true;
       _startTimer();
     } else if (webrtc.isConnected) {
@@ -119,100 +136,56 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
         children: [
           // Remote video (full screen)
           Positioned.fill(
-            child: RTCVideoView(
-              _remoteRenderer,
-              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-            ),
+            child: _remoteStreamReady
+                ? RTCVideoView(
+                    _remoteRenderer,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  )
+                : Container(
+                    color: Colors.black87,
+                    child: _buildCallingOverlay(),
+                  ),
           ),
 
-          // Overlay when not connected (Calling screen)
-          if (!_connected)
+          // Loading overlay when no remote stream yet
+          if (!_connected && !_remoteStreamReady)
             Container(
-              color: Colors.black87,
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircleAvatar(
-                      radius: 50,
-                      backgroundImage:
-                          widget.otherUser?.avatarUrl.isNotEmpty == true
-                          ? NetworkImage(widget.otherUser!.avatarUrl)
-                          : null,
-                      child: widget.otherUser?.avatarUrl.isEmpty != false
-                          ? const Icon(
-                              Icons.person,
-                              size: 50,
-                              color: Colors.white,
-                            )
-                          : null,
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      widget.otherUser?.name ?? 'Unknown',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      widget.isCaller ? 'Calling...' : 'Connecting...',
-                      style: const TextStyle(
-                        color: Colors.white60,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    TextButton.icon(
-                      onPressed: () async {
-                        await ref.read(webrtcServiceProvider).endCall();
-                        if (!context.mounted) return;
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(Icons.close, color: Colors.white70),
-                      label: const Text(
-                        'Cancel',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              color: Colors.black54,
+              child: _buildCallingOverlay(),
             ),
 
-          // Local video preview (draggable)
-          Positioned(
-            left: _pipOffset!.dx,
-            top: _pipOffset!.dy,
-            width: 110,
-            height: 150,
-            child: GestureDetector(
-              onPanUpdate: (d) {
-                setState(() {
-                  _pipOffset = Offset(
-                    (_pipOffset!.dx + d.delta.dx).clamp(
-                      0,
-                      MediaQuery.of(context).size.width - 120,
-                    ),
-                    (_pipOffset!.dy + d.delta.dy).clamp(
-                      0,
-                      MediaQuery.of(context).size.height - 200,
-                    ),
-                  );
-                });
-              },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: RTCVideoView(
-                  _localRenderer,
-                  mirror: true,
-                  objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          // Local video preview (draggable PiP)
+          if (_localStreamReady)
+            Positioned(
+              left: _pipOffset!.dx,
+              top: _pipOffset!.dy,
+              width: 120,
+              height: 160,
+              child: GestureDetector(
+                onPanUpdate: (d) {
+                  setState(() {
+                    _pipOffset = Offset(
+                      (_pipOffset!.dx + d.delta.dx).clamp(
+                        0,
+                        MediaQuery.of(context).size.width - 130,
+                      ),
+                      (_pipOffset!.dy + d.delta.dy).clamp(
+                        0,
+                        MediaQuery.of(context).size.height - 210,
+                      ),
+                    );
+                  });
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: RTCVideoView(
+                    _localRenderer,
+                    mirror: true,
+                    objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                  ),
                 ),
               ),
             ),
-          ),
 
           // Timer
           if (_connected)
@@ -221,9 +194,16 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
               left: 0,
               right: 0,
               child: Center(
-                child: Text(
-                  _callDuration,
-                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _callDuration,
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
                 ),
               ),
             ),
@@ -233,58 +213,119 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
             bottom: 40,
             left: 0,
             right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _CallBtn(
-                  icon: _muted ? Icons.mic_off : Icons.mic,
-                  label: _muted ? 'Unmute' : 'Mute',
-                  onTap: () {
-                    ref.read(webrtcServiceProvider).toggleMute(!_muted);
-                    setState(() => _muted = !_muted);
-                  },
-                ),
-                _CallBtn(
-                  icon: Icons.chat_bubble_outline,
-                  label: 'Chat',
-                  onTap: _openInCallChat,
-                ),
-                _CallBtn(
-                  icon: Icons.call_end,
-                  label: 'End',
-                  color: AppColors.error,
-                  size: 60,
-                  onTap: () async {
-                    await ref.read(webrtcServiceProvider).endCall();
-                    if (!context.mounted) return;
-                    Navigator.pop(context);
-                  },
-                ),
-                _CallBtn(
-                  icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
-                  label: _cameraOff ? 'Cam On' : 'Cam Off',
-                  onTap: () {
-                    ref.read(webrtcServiceProvider).toggleCamera(!_cameraOff);
-                    setState(() => _cameraOff = !_cameraOff);
-                  },
-                ),
-                _CallBtn(
-                  icon: Icons.cameraswitch,
-                  label: 'Flip',
-                  onTap: () => ref.read(webrtcServiceProvider).switchCamera(),
-                ),
-                _CallBtn(
-                  icon: _speakerOn ? Icons.volume_up : Icons.volume_off,
-                  label: _speakerOn ? 'Speaker' : 'Silent',
-                  onTap: () async {
-                    await ref
-                        .read(webrtcServiceProvider)
-                        .toggleSpeaker(!_speakerOn);
-                    if (mounted) setState(() => _speakerOn = !_speakerOn);
-                  },
-                ),
-              ],
-            ),
+            child: _buildControls(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCallingOverlay() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 55,
+            backgroundImage: widget.otherUser?.avatarUrl.isNotEmpty == true
+                ? NetworkImage(widget.otherUser!.avatarUrl)
+                : null,
+            backgroundColor: Colors.white24,
+            child: widget.otherUser?.avatarUrl.isEmpty != false
+                ? const Icon(Icons.person, size: 55, color: Colors.white)
+                : null,
+          ),
+          const SizedBox(height: 24),
+          Text(
+            widget.otherUser?.name ?? 'Unknown',
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white60),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                widget.isCaller ? 'Calling...' : 'Connecting...',
+                style: const TextStyle(color: Colors.white60, fontSize: 16),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          TextButton.icon(
+            onPressed: () async {
+              await ref.read(webrtcServiceProvider).endCall();
+              if (!context.mounted) return;
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.call_end, color: AppColors.error),
+            label: const Text('End Call', style: TextStyle(color: AppColors.error, fontSize: 16)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControls() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.black38,
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _CallBtn(
+            icon: _muted ? Icons.mic_off : Icons.mic,
+            label: _muted ? 'Unmute' : 'Mute',
+            onTap: () {
+              ref.read(webrtcServiceProvider).toggleMute(!_muted);
+              setState(() => _muted = !_muted);
+            },
+          ),
+          _CallBtn(
+            icon: Icons.chat_bubble_outline,
+            label: 'Chat',
+            onTap: _openInCallChat,
+          ),
+          _CallBtn(
+            icon: Icons.call_end,
+            label: 'End',
+            color: AppColors.error,
+            size: 60,
+            onTap: () async {
+              await ref.read(webrtcServiceProvider).endCall();
+              if (!context.mounted) return;
+              Navigator.pop(context);
+            },
+          ),
+          _CallBtn(
+            icon: _cameraOff ? Icons.videocam_off : Icons.videocam,
+            label: _cameraOff ? 'Cam On' : 'Cam Off',
+            onTap: () {
+              ref.read(webrtcServiceProvider).toggleCamera(!_cameraOff);
+              setState(() => _cameraOff = !_cameraOff);
+            },
+          ),
+          _CallBtn(
+            icon: Icons.cameraswitch,
+            label: 'Flip',
+            onTap: () => ref.read(webrtcServiceProvider).switchCamera(),
+          ),
+          _CallBtn(
+            icon: _speakerOn ? Icons.volume_up : Icons.volume_off,
+            label: _speakerOn ? 'Speaker' : 'Silent',
+            onTap: () async {
+              await ref.read(webrtcServiceProvider).toggleSpeaker(!_speakerOn);
+              if (mounted) setState(() => _speakerOn = !_speakerOn);
+            },
           ),
         ],
       ),

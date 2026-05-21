@@ -42,33 +42,36 @@ class StatusTab extends ConsumerWidget {
                   horizontal: 16,
                   vertical: 6,
                 ),
-                leading: Stack(
-                  children: [
-                    UserAvatar(
-                      url: me?.avatarUrl,
-                      name: me?.name ?? 'Me',
-                      radius: 26,
-                      borderColor: myStatuses.isNotEmpty
-                          ? AppColors.accentGreen
-                          : null,
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: AppColors.accentGreen,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.add,
-                          size: 14,
-                          color: Colors.white,
+                leading: GestureDetector(
+                  onTap: () => context.push('/create-status'),
+                  child: Stack(
+                    children: [
+                      UserAvatar(
+                        url: me?.avatarUrl,
+                        name: me?.name ?? 'Me',
+                        radius: 26,
+                        borderColor: myStatuses.isNotEmpty
+                            ? AppColors.accentGreen
+                            : null,
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(
+                            color: AppColors.accentGreen,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.add,
+                            size: 14,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 title: const Text(
                   'My Status',

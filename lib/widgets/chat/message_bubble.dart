@@ -2,13 +2,15 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/models.dart';
 import '../../core/constants/app_colors.dart';
+import '../../providers/providers.dart';
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends ConsumerWidget {
   final MessageModel message;
   final bool isMe;
   final String otherUserName;
@@ -27,7 +29,8 @@ class MessageBubble extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fontSize = ref.watch(fontSizeProvider).toDouble();
     final bubble = GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -88,7 +91,7 @@ class MessageBubble extends StatelessWidget {
                             fontSize: 12, fontStyle: FontStyle.italic),
                       ),
                     ),
-                  _MessageContent(message: message),
+                  _MessageContent(message: message, fontSize: fontSize),
                   const SizedBox(height: 2),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -206,7 +209,8 @@ class _ReactionsPill extends StatelessWidget {
 
 class _MessageContent extends StatelessWidget {
   final MessageModel message;
-  const _MessageContent({required this.message});
+  final double fontSize;
+  const _MessageContent({required this.message, this.fontSize = 15});
 
   @override
   Widget build(BuildContext context) {
@@ -326,15 +330,15 @@ class _MessageContent extends StatelessWidget {
       case MessageType.contact:
         final name = message.contactName.isNotEmpty ? message.contactName : 'Contact';
         return Text('👤 $name',
-            style: const TextStyle(fontSize: 15, color: AppColors.textPrimary));
+            style: TextStyle(fontSize: fontSize, color: AppColors.textPrimary));
 
       case MessageType.video:
         return _VideoBubble(message: message);
 
       case MessageType.gif:
-        return const Text(
+        return Text(
           'GIF',
-          style: TextStyle(fontSize: 15, color: AppColors.textPrimary),
+          style: TextStyle(fontSize: fontSize, color: AppColors.textPrimary),
         );
 
       case MessageType.poll:
@@ -344,32 +348,32 @@ class _MessageContent extends StatelessWidget {
             color: Colors.black.withAlpha(12),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.poll_outlined, size: 18, color: AppColors.textSecondary),
               SizedBox(width: 8),
-              Text('Poll', style: TextStyle(fontSize: 14, color: AppColors.textPrimary)),
+              Text('Poll', style: TextStyle(fontSize: fontSize, color: AppColors.textPrimary)),
             ],
           ),
         );
 
       case MessageType.sticker:
-        return const Text(
+        return Text(
           'Sticker',
-          style: TextStyle(fontSize: 15, color: AppColors.textPrimary),
+          style: TextStyle(fontSize: fontSize, color: AppColors.textPrimary),
         );
 
       case MessageType.deleted:
-        return const Text(
+        return Text(
           '🚫 Deleted message',
-          style: TextStyle(fontSize: 14, color: AppColors.textHint, fontStyle: FontStyle.italic),
+          style: TextStyle(fontSize: fontSize - 1, color: AppColors.textHint, fontStyle: FontStyle.italic),
         );
 
       case MessageType.text:
         return Text(
           message.text,
-          style: const TextStyle(fontSize: 15, color: AppColors.textPrimary),
+          style: TextStyle(fontSize: fontSize, color: AppColors.textPrimary),
         );
     }
   }

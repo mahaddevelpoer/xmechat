@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_colors.dart';
+import '../../providers/providers.dart';
 
-class ChatInputBar extends StatelessWidget {
+class ChatInputBar extends ConsumerWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
   final VoidCallback? onCamera;
@@ -24,7 +26,8 @@ class ChatInputBar extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enterToSend = ref.watch(enterToSendProvider);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       color: AppColors.bgSecondary,
@@ -56,7 +59,8 @@ class ChatInputBar extends StatelessWidget {
                 ),
                 maxLines: 6,
                 minLines: 1,
-                textInputAction: TextInputAction.newline,
+                textInputAction: enterToSend ? TextInputAction.send : TextInputAction.newline,
+                onSubmitted: enterToSend ? (_) => onSend() : null,
                 style: const TextStyle(fontSize: 15),
               ),
             ),

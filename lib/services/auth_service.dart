@@ -29,7 +29,14 @@ class AuthService {
 
   // ── Sign Out ──────────────────────────────────────
   Future<void> signOut() async {
-    await updateOnlineStatus(false);
+    try {
+      if (currentUserId.isNotEmpty) {
+        await _client.from(SupabaseConstants.usersTable).update({
+          'is_online': false,
+          'last_seen': DateTime.now().toUtc().toIso8601String(),
+        }).eq('id', currentUserId);
+      }
+    } catch (_) {}
     await _client.auth.signOut();
   }
 
@@ -90,6 +97,7 @@ class AuthService {
     if (name != null) updates['name'] = name;
     if (phoneInfo != null) updates['phone_info'] = phoneInfo;
     if (bio != null) updates['bio'] = bio;
+    // Always include avatar_url field (even when null) to prevent overwrite issues
     if (avatarUrl != null) updates['avatar_url'] = avatarUrl;
     if (updates.isEmpty) return;
     await _client.from(SupabaseConstants.usersTable).update(updates).eq('id', currentUserId);

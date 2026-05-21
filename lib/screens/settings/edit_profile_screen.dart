@@ -71,7 +71,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     setState(() => _saving = true);
     try {
       final auth = ref.read(authServiceProvider);
-      String? avatarUrl;
+      String? avatarUrl = _existingAvatarUrl;
       if (_avatarBytes != null) {
         avatarUrl = await auth.uploadAvatar(_avatarBytes!, 'jpg');
       }

@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
-import '../../widgets/common/user_avatar.dart';
 
 class VoiceCallScreen extends ConsumerStatefulWidget {
   final String callId;
@@ -77,84 +76,113 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
         ? _callDuration
         : (widget.isCaller ? 'Calling...' : 'Ringing...');
     return Scaffold(
-      backgroundColor: AppColors.primaryGreen,
+      backgroundColor: const Color(0xFF075E54),
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: 60),
-            UserAvatar(
-              url: widget.otherUser?.avatarUrl,
-              name: widget.otherUser?.name ?? '?',
-              radius: 55,
+            const SizedBox(height: 80),
+            // User avatar and name
+            CircleAvatar(
+              radius: 60,
+              backgroundColor: Colors.white24,
+              backgroundImage: widget.otherUser?.avatarUrl.isNotEmpty == true
+                  ? NetworkImage(widget.otherUser!.avatarUrl)
+                  : null,
+              child: widget.otherUser?.avatarUrl.isEmpty != false
+                  ? const Icon(Icons.person, size: 60, color: Colors.white)
+                  : null,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             Text(
               widget.otherUser?.name ?? 'Unknown',
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 26,
+                fontSize: 28,
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              statusText,
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!_connected && !widget.isCaller)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white60),
+                  ),
+                if (!_connected && !widget.isCaller) const SizedBox(width: 10),
+                Text(
+                  statusText,
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+              ],
             ),
             if (!_connected && widget.isCaller) ...[
-              const SizedBox(height: 14),
-              TextButton.icon(
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
                 onPressed: () async {
                   await ref.read(webrtcServiceProvider).endCall();
                   if (!context.mounted) return;
                   Navigator.pop(context);
                 },
-                icon: const Icon(Icons.close, color: Colors.white70),
-                label: const Text(
-                  'Cancel',
-                  style: TextStyle(color: Colors.white70),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white30),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
+                icon: const Icon(Icons.close, size: 20),
+                label: const Text('Cancel', style: TextStyle(fontSize: 16)),
               ),
             ],
             const Spacer(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _VoiceBtn(
-                  icon: _muted ? Icons.mic_off : Icons.mic,
-                  label: _muted ? 'Unmute' : 'Mute',
-                  onTap: () {
-                    ref.read(webrtcServiceProvider).toggleMute(!_muted);
-                    setState(() => _muted = !_muted);
-                  },
-                ),
-                _VoiceBtn(
-                  icon: Icons.chat_bubble_outline,
-                  label: 'Chat',
-                  onTap: _openInCallChat,
-                ),
-                _VoiceBtn(
-                  icon: Icons.call_end,
-                  label: 'End',
-                  bg: AppColors.error,
-                  size: 65,
-                  onTap: () async {
-                    await ref.read(webrtcServiceProvider).endCall();
-                    if (!context.mounted) return;
-                    Navigator.pop(context);
-                  },
-                ),
-                _VoiceBtn(
-                  icon: _speaker ? Icons.volume_up : Icons.volume_down,
-                  label: _speaker ? 'Speaker' : 'Earpiece',
-                  onTap: () async {
-                    await ref
-                        .read(webrtcServiceProvider)
-                        .toggleSpeaker(!_speaker);
-                    setState(() => _speaker = !_speaker);
-                  },
-                ),
-              ],
+            // Control buttons
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _VoiceBtn(
+                    icon: _muted ? Icons.mic_off : Icons.mic,
+                    label: _muted ? 'Unmute' : 'Mute',
+                    onTap: () {
+                      ref.read(webrtcServiceProvider).toggleMute(!_muted);
+                      setState(() => _muted = !_muted);
+                    },
+                  ),
+                  _VoiceBtn(
+                    icon: Icons.chat_bubble_outline,
+                    label: 'Chat',
+                    onTap: _openInCallChat,
+                  ),
+                  _VoiceBtn(
+                    icon: Icons.call_end,
+                    label: 'End',
+                    bg: AppColors.error,
+                    size: 65,
+                    onTap: () async {
+                      await ref.read(webrtcServiceProvider).endCall();
+                      if (!context.mounted) return;
+                      Navigator.pop(context);
+                    },
+                  ),
+                  _VoiceBtn(
+                    icon: _speaker ? Icons.volume_up : Icons.volume_down,
+                    label: _speaker ? 'Speaker' : 'Earpiece',
+                    onTap: () async {
+                      await ref
+                          .read(webrtcServiceProvider)
+                          .toggleSpeaker(!_speaker);
+                      setState(() => _speaker = !_speaker);
+                    },
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 60),
           ],

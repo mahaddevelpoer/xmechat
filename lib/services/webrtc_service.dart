@@ -402,7 +402,9 @@ class WebRTCService {
         .stream(primaryKey: ['id'])
         .map((rows) {
           final incoming = rows.where(
-            (r) => r['receiver_id'] == _uid && r['status'] == 'ringing',
+            (r) => r['receiver_id'] == _uid
+                && r['status'] == 'ringing'
+                && r['caller_id'] != _uid, // Never notify about calls from self
           );
           return incoming.isNotEmpty ? CallModel.fromMap(incoming.first) : null;
         });

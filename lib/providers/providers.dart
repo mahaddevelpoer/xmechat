@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/models.dart';
 import '../services/auth_service.dart';
 import '../services/chat_service.dart';
@@ -140,4 +141,19 @@ final streamGroupMessagesProvider = StreamProvider.autoDispose.family<List<Map<S
 // ── Chats Stream (alias for desktop sidebar) ──────
 final chatsStreamProvider = FutureProvider.autoDispose<List<ChatModel>>((ref) async {
   return ref.read(chatServiceProvider).fetchChats();
+});
+
+// ── Settings (SharedPreferences-backed) ───────────
+final settingsProvider = FutureProvider<SharedPreferences>((ref) async {
+  return SharedPreferences.getInstance();
+});
+
+final enterToSendProvider = Provider<bool>((ref) {
+  final prefs = ref.watch(settingsProvider).valueOrNull;
+  return prefs?.getBool('enter_to_send') ?? false;
+});
+
+final fontSizeProvider = Provider<double>((ref) {
+  final prefs = ref.watch(settingsProvider).valueOrNull;
+  return prefs?.getDouble('font_size') ?? 14.0;
 });

@@ -559,6 +559,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ref.invalidate(statusesProvider);
                     ref.invalidate(myStatusesProvider);
                     ref.invalidate(callHistoryProvider);
+                    ref.invalidate(allUsersProvider);
+                    ref.invalidate(authStateProvider);
                     if (!context.mounted) return;
                     context.go('/login');
                   }

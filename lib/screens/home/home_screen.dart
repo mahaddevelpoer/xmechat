@@ -315,6 +315,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               _DesktopChatsTab(
                 onThreadOpen: _openThread,
                 activeFilter: _activeFilter,
+                searchQuery: ref.watch(searchQueryProvider),
               ),
               const CallsTab(),
               const StatusTab(),
@@ -565,7 +566,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 class _DesktopChatsTab extends ConsumerWidget {
   final void Function(_ThreadItem item) onThreadOpen;
   final String activeFilter;
-  const _DesktopChatsTab({required this.onThreadOpen, required this.activeFilter});
+  final String searchQuery;
+  const _DesktopChatsTab({required this.onThreadOpen, required this.activeFilter, this.searchQuery = ''});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -577,10 +579,18 @@ class _DesktopChatsTab extends ConsumerWidget {
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (chats) {
         final groups = groupsAsync.valueOrNull ?? const <GroupModel>[];
+        final query = searchQuery.trim().toLowerCase();
+
+        var filteredChats = chats;
+        var filteredGroups = groups;
+        if (query.isNotEmpty) {
+          filteredChats = chats.where((c) => c.otherUser?.name.toLowerCase().contains(query) ?? false).toList();
+          filteredGroups = groups.where((g) => g.name.toLowerCase().contains(query)).toList();
+        }
 
         final items = <_ThreadItem>[
-          ...chats.map((c) => _ThreadItem.chat(c)),
-          ...groups.map((g) => _ThreadItem.group(g)),
+          ...filteredChats.map((c) => _ThreadItem.chat(c)),
+          ...filteredGroups.map((g) => _ThreadItem.group(g)),
         ]..sort((a, b) => b.lastAt.compareTo(a.lastAt));
 
         List<_ThreadItem> filtered = items;
@@ -591,11 +601,73 @@ class _DesktopChatsTab extends ConsumerWidget {
             return false;
           }).toList();
         } else if (activeFilter == 'Favourites') {
-          // Assuming Favourites implies chats/groups with unreadCount > 0 or specific logic.
-          // In WhatsApp, favourites are starred contacts/groups. Since we don't have isFavourite on ChatModel right now, we can filter to empty or keep as items.
-          filtered = items; // TODO: Implement favourites properly
+          filtered = items;
         } else if (activeFilter == 'Groups') {
           filtered = items.where((i) => i.kind == _ThreadKind.group).toList();
+        }
+
+        if (query.isNotEmpty) {
+          final searchResults = ref.watch(searchResultsProvider).valueOrNull ?? [];
+          final existingUserIds = chats.map((c) => c.otherUser?.id).toSet();
+          final newContacts = searchResults.where((u) => !existingUserIds.contains(u.id)).toList();
+
+          if (filtered.isEmpty && newContacts.isEmpty) {
+            return const Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.search_off, size: 60, color: AppColors.textHint),
+                SizedBox(height: 12),
+                Text('No matches found', style: TextStyle(color: AppColors.textSecondary)),
+              ]),
+            );
+          }
+
+          return ListView(
+            children: [
+              if (filtered.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Text('CHATS & GROUPS', style: TextStyle(color: AppColors.primaryGreen, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                ...filtered.map((item) {
+                  if (item.kind == _ThreadKind.group) {
+                    return _DesktopGroupTile(
+                      group: item.group!,
+                      onTap: () => onThreadOpen(item),
+                    );
+                  }
+                  return _DesktopChatTile(
+                    chat: item.chat!,
+                    other: item.chat!.otherUser,
+                    onTap: () => onThreadOpen(item),
+                  );
+                }),
+              ],
+              if (newContacts.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Text('START A NEW CHAT', style: TextStyle(color: AppColors.primaryGreen, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                ...newContacts.map((user) => ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: UserAvatar(url: user.avatarUrl, name: user.name, radius: 26, isOnline: user.isOnline),
+                  title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: AppColors.textPrimary)),
+                  subtitle: Text(user.bio.isNotEmpty ? user.bio : 'Hey there! I am using XmeChat.', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  onTap: () async {
+                    final chatSvc = ref.read(chatServiceProvider);
+                    final chatId = await chatSvc.getOrCreateChat(user.id);
+                    if (!context.mounted) return;
+                    onThreadOpen(_ThreadItem.chat(ChatModel(
+                      id: chatId,
+                      user1Id: ref.read(authServiceProvider).currentUserId,
+                      user2Id: user.id,
+                      lastMessageAt: DateTime.now(),
+                      createdAt: DateTime.now(),
+                    )..otherUser = user));
+                  },
+                )),
+              ],
+            ],
+          );
         }
 
         if (filtered.isEmpty) {

@@ -1,278 +1,248 @@
 import 'package:flutter/material.dart';
 
+// ═══════════════════════════════════════════════════════════
+// OBSIDIAN FLOW — Deep Space Design System
+// A premium glassmorphic messenger UI
+// ═══════════════════════════════════════════════════════════
+
 class AppColors {
-  // ── Nova Design System ─────────────────────────────
-  // Primary: Deep Indigo → Violet
-  static const Color primary = Color(0xFF4A28B0);
-  static const Color primaryLight = Color(0xFF7C5CFC);
-  static const Color primaryDark = Color(0xFF2D1B69);
+  // ── Surface Colors ────────────────────────────────────
+  static const Color surface = Color(0xFF0b1326);
+  static const Color surfaceDim = Color(0xFF0b1326);
+  static const Color surfaceBright = Color(0xFF31394d);
+  static const Color surfaceContainerLowest = Color(0xFF060e20);
+  static const Color surfaceContainerLow = Color(0xFF131b2e);
+  static const Color surfaceContainer = Color(0xFF171f33);
+  static const Color surfaceContainerHigh = Color(0xFF222a3d);
+  static const Color surfaceContainerHighest = Color(0xFF2d3449);
+  static const Color surfaceVariant = Color(0xFF2d3449);
 
-  // Accent: Vibrant Coral → Orange
-  static const Color accent = Color(0xFFFF6B6B);
-  static const Color accentLight = Color(0xFFFF8E53);
-  static const Color accentSoft = Color(0xFFFFB088);
+  static const Color onSurface = Color(0xFFdae2fd);
+  static const Color onSurfaceVariant = Color(0xFFc1c8c7);
+  static const Color inverseSurface = Color(0xFFdae2fd);
+  static const Color inverseOnSurface = Color(0xFF283044);
 
-  // Gradients
-  static const Gradient primaryGradient = LinearGradient(
-    colors: [Color(0xFF4A28B0), Color(0xFF7C5CFC)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-  static const Gradient accentGradient = LinearGradient(
-    colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-  static const Gradient bgGradient = LinearGradient(
-    colors: [Color(0xFFF8F6FF), Color(0xFFFFF5F3)],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-  static const Gradient darkBgGradient = LinearGradient(
-    colors: [Color(0xFF0D0B1E), Color(0xFF1A1530)],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
+  // ── Primary (Deep Teal) ───────────────────────────────
+  static const Color primary = Color(0xFFaccdcc);
+  static const Color onPrimary = Color(0xFF163535);
+  static const Color primaryContainer = Color(0xFF0d2d2d);
+  static const Color onPrimaryContainer = Color(0xFF769595);
+  static const Color primaryFixed = Color(0xFFc8e9e8);
+  static const Color primaryFixedDim = Color(0xFFaccdcc);
+  static const Color onPrimaryFixed = Color(0xFF002020);
+  static const Color onPrimaryFixedVariant = Color(0xFF2e4c4c);
+  static const Color inversePrimary = Color(0xFF456463);
 
-  // Backgrounds
-  static const Color bgPrimary = Color(0xFFF8F6FF);
-  static const Color bgSecondary = Color(0xFFEEEAFF);
-  static const Color bgSurface = Color(0xFFFFFFFF);
-  static const Color chatBg = Color(0xFFF5F0FF);
+  // ── Secondary (Cyan/Teal Accent) ──────────────────────
+  static const Color secondary = Color(0xFF4fdbc8);
+  static const Color onSecondary = Color(0xFF003731);
+  static const Color secondaryContainer = Color(0xFF04b4a2);
+  static const Color onSecondaryContainer = Color(0xFF003f38);
+  static const Color secondaryFixed = Color(0xFF71f8e4);
+  static const Color secondaryFixedDim = Color(0xFF4fdbc8);
+  static const Color onSecondaryFixed = Color(0xFF00201c);
+  static const Color onSecondaryFixedVariant = Color(0xFF005048);
 
-  // Bubbles
-  static const Color sentBubble = Color(0xFF4A28B0);
-  static const Color sentBubbleLight = Color(0xFF7C5CFC);
-  static const Color receivedBubble = Color(0xFFFFFFFF);
+  // ── Tertiary (Rose) ───────────────────────────────────
+  static const Color tertiary = Color(0xFFffb2b7);
+  static const Color onTertiary = Color(0xFF67001b);
+  static const Color tertiaryContainer = Color(0xFF580016);
+  static const Color onTertiaryContainer = Color(0xFFff4d68);
+  static const Color tertiaryFixed = Color(0xFFffdadb);
+  static const Color tertiaryFixedDim = Color(0xFFffb2b7);
+  static const Color onTertiaryFixed = Color(0xFF40000d);
+  static const Color onTertiaryFixedVariant = Color(0xFF92002a);
 
-  // Text
-  static const Color textPrimary = Color(0xFF1A1530);
-  static const Color textSecondary = Color(0xFF6B6894);
-  static const Color textHint = Color(0xFF9D9AB8);
-  static const Color textWhite = Color(0xFFFFFFFF);
-  static const Color textOnPrimary = Color(0xFFFFFFFF);
+  // ── Error ─────────────────────────────────────────────
+  static const Color error = Color(0xFFffb4ab);
+  static const Color onError = Color(0xFF690005);
+  static const Color errorContainer = Color(0xFF93000a);
+  static const Color onErrorContainer = Color(0xFFffdad6);
 
-  // Status
-  static const Color online = Color(0xFF2ED573);
-  static const Color away = Color(0xFFFFA502);
-  static const Color busy = Color(0xFFFF6B6B);
-  static const Color read = Color(0xFF7C5CFC);
+  // ── Outline ───────────────────────────────────────────
+  static const Color outline = Color(0xFF8b9292);
+  static const Color outlineVariant = Color(0xFF414848);
 
-  // Misc
-  static const Color divider = Color(0xFFE8E5F0);
-  static const Color error = Color(0xFFFF4757);
-  static const Color success = Color(0xFF2ED573);
-  static const Color warning = Color(0xFFFFA502);
-  static const Color glassBg = Color(0x1AFFFFFF);
-  static const Color glassBorder = Color(0x2AFFFFFF);
+  // ── Background ─────────────────────────────────────────
+  static const Color background = Color(0xFF0b1326);
+  static const Color onBackground = Color(0xFFdae2fd);
 
-  // ── Legacy aliases (backward compat) ───────────────
+  // ── Glassmorphism ─────────────────────────────────────
+  static const Color glassBg = Color(0x992d3449);
+  static const Color glassBorder = Color(0x1AFFFFFF);
+  static const Color glassInnerGlow = Color(0x0DFFFFFF);
+
+  // ── Legacy Aliases (backward compat) ──────────────────
   static const Color primaryGreen = primary;
-  static const Color accentGreen = primaryLight;
-  static const Color lightGreen = sentBubble;
-
-  // ── Dark Mode ──────────────────────────────────────
-  static const Color darkBg = Color(0xFF0D0B1E);
-  static const Color darkSurface = Color(0xFF1A1530);
-  static const Color darkSurfaceLight = Color(0xFF252040);
-  static const Color darkChatBg = Color(0xFF100D24);
-  static const Color darkSentBubble = Color(0xFF4A28B0);
-  static const Color darkReceivedBubble = Color(0xFF1A1530);
-  static const Color darkText = Color(0xFFE8E5F0);
-  static const Color darkTextSecondary = Color(0xFF9D9AB8);
-  static const Color darkIcon = Color(0xFF7C78A0);
-  static const Color darkDivider = Color(0xFF2A2545);
-  static const Color darkGlassBg = Color(0x1AFFFFFF);
-  static const Color darkGlassBorder = Color(0x2AFFFFFF);
+  static const Color accentGreen = secondary;
+  static const Color lightGreen = primary;
+  static const Color bgPrimary = surface;
+  static const Color bgSecondary = surfaceContainerLow;
+  static const Color chatBg = surface;
+  static const Color sentBubble = primary;
+  static const Color receivedBubble = surfaceContainerHighest;
+  static const Color textPrimary = onSurface;
+  static const Color textSecondary = onSurfaceVariant;
+  static const Color textHint = outline;
+  static const Color textWhite = Colors.white;
+  static const Color online = secondary;
+  static const Color read = secondary;
+  static const Color divider = outlineVariant;
+  static const Color success = secondary;
+  static const Color warning = tertiary;
+  static const Color darkBg = surface;
+  static const Color darkSurface = surfaceContainer;
+  static const Color darkSurfaceLight = surfaceContainerHigh;
+  static const Color darkChatBg = surface;
+  static const Color darkSentBubble = primary;
+  static const Color darkReceivedBubble = surfaceContainerHighest;
+  static const Color darkText = onSurface;
+  static const Color darkTextSecondary = onSurfaceVariant;
+  static const Color darkIcon = outline;
+  static const Color darkDivider = outlineVariant;
 }
 
+// ═══════════════════════════════════════════════════════════
+// OBSIDIAN FLOW THEME
+// ═══════════════════════════════════════════════════════════
+
 class AppTheme {
-  static ThemeData get light => ThemeData(
+  static ThemeData get dark => ThemeData(
     useMaterial3: true,
+    brightness: Brightness.dark,
     primaryColor: AppColors.primary,
-    scaffoldBackgroundColor: AppColors.bgPrimary,
-    colorScheme: const ColorScheme.light(
+    scaffoldBackgroundColor: AppColors.surface,
+    colorScheme: const ColorScheme.dark(
       primary: AppColors.primary,
-      secondary: AppColors.accent,
-      surface: AppColors.bgSurface,
+      onPrimary: AppColors.onPrimary,
+      primaryContainer: AppColors.primaryContainer,
+      onPrimaryContainer: AppColors.onPrimaryContainer,
+      secondary: AppColors.secondary,
+      onSecondary: AppColors.onSecondary,
+      secondaryContainer: AppColors.secondaryContainer,
+      onSecondaryContainer: AppColors.onSecondaryContainer,
+      tertiary: AppColors.tertiary,
+      onTertiary: AppColors.onTertiary,
+      tertiaryContainer: AppColors.tertiaryContainer,
+      onTertiaryContainer: AppColors.onTertiaryContainer,
       error: AppColors.error,
+      onError: AppColors.onError,
+      errorContainer: AppColors.errorContainer,
+      onErrorContainer: AppColors.onErrorContainer,
+      surface: AppColors.surface,
+      onSurface: AppColors.onSurface,
+      onSurfaceVariant: AppColors.onSurfaceVariant,
+      outline: AppColors.outline,
+      outlineVariant: AppColors.outlineVariant,
+      inverseSurface: AppColors.inverseSurface,
+      inversePrimary: AppColors.inversePrimary,
     ),
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.transparent,
-      foregroundColor: AppColors.textPrimary,
+      foregroundColor: AppColors.onSurface,
       elevation: 0,
       centerTitle: false,
       titleTextStyle: TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 18,
+        color: AppColors.primary,
+        fontSize: 20,
         fontWeight: FontWeight.w600,
+        fontFamily: 'Hanken Grotesk',
       ),
     ),
     tabBarTheme: const TabBarThemeData(
-      indicatorColor: AppColors.primary,
-      labelColor: AppColors.primary,
-      unselectedLabelColor: AppColors.textHint,
+      indicatorColor: AppColors.secondary,
+      labelColor: AppColors.secondary,
+      unselectedLabelColor: AppColors.onSurfaceVariant,
       indicatorSize: TabBarIndicatorSize.tab,
     ),
     bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-      backgroundColor: AppColors.bgSurface,
-      selectedItemColor: AppColors.primary,
-      unselectedItemColor: AppColors.textHint,
+      backgroundColor: AppColors.surfaceContainerLow,
+      selectedItemColor: AppColors.secondary,
+      unselectedItemColor: AppColors.onSurfaceVariant,
       type: BottomNavigationBarType.fixed,
-      elevation: 8,
+      elevation: 0,
     ),
     floatingActionButtonTheme: const FloatingActionButtonThemeData(
-      backgroundColor: AppColors.primary,
-      foregroundColor: AppColors.textWhite,
+      backgroundColor: AppColors.secondary,
+      foregroundColor: AppColors.onSecondary,
       elevation: 4,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: AppColors.bgSecondary,
+      fillColor: AppColors.surfaceVariant.withAlpha(100),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(999),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(999),
         borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.primaryLight, width: 1.5),
+        borderRadius: BorderRadius.circular(999),
+        borderSide: const BorderSide(color: AppColors.secondary, width: 1),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      hintStyle: const TextStyle(color: AppColors.textHint),
+      hintStyle: const TextStyle(color: AppColors.outline),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.textWhite,
+        backgroundColor: AppColors.secondary,
+        foregroundColor: AppColors.onSecondary,
         minimumSize: const Size(double.infinity, 52),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         elevation: 0,
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, fontFamily: 'Hanken Grotesk'),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: AppColors.primary,
+        foregroundColor: AppColors.secondary,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     ),
     dividerTheme: const DividerThemeData(
-      color: AppColors.divider,
+      color: AppColors.outlineVariant,
       thickness: 0.5,
     ),
     chipTheme: ChipThemeData(
-      backgroundColor: AppColors.bgSecondary,
-      labelStyle: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+      backgroundColor: AppColors.surfaceContainerHigh,
+      labelStyle: const TextStyle(color: AppColors.onSurface, fontSize: 13),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       side: BorderSide.none,
     ),
     dialogTheme: DialogThemeData(
-      backgroundColor: AppColors.bgSurface,
+      backgroundColor: AppColors.surfaceContainerLow,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
     ),
     bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: AppColors.bgSurface,
+      backgroundColor: AppColors.surfaceContainerLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
     ),
     cardTheme: CardThemeData(
-      color: AppColors.bgSurface,
+      color: AppColors.glassBg,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      backgroundColor: AppColors.surfaceContainerHighest,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: AppColors.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    sliderTheme: SliderThemeData(
+      activeTrackColor: AppColors.secondary,
+      inactiveTrackColor: AppColors.outlineVariant,
+      thumbColor: AppColors.secondary,
+      overlayColor: AppColors.secondary.withAlpha(30),
     ),
   );
 
-  static ThemeData get dark => ThemeData(
-    useMaterial3: true,
-    primaryColor: AppColors.primaryLight,
-    scaffoldBackgroundColor: AppColors.darkBg,
-    colorScheme: const ColorScheme.dark(
-      primary: AppColors.primaryLight,
-      secondary: AppColors.accent,
-      surface: AppColors.darkSurface,
-      error: AppColors.error,
-    ),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: Colors.transparent,
-      foregroundColor: AppColors.darkText,
-      elevation: 0,
-      centerTitle: false,
-      titleTextStyle: TextStyle(
-        color: AppColors.darkText,
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-    tabBarTheme: const TabBarThemeData(
-      indicatorColor: AppColors.primaryLight,
-      labelColor: AppColors.primaryLight,
-      unselectedLabelColor: AppColors.darkIcon,
-    ),
-    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-      backgroundColor: AppColors.darkSurface,
-      selectedItemColor: AppColors.primaryLight,
-      unselectedItemColor: AppColors.darkIcon,
-      type: BottomNavigationBarType.fixed,
-      elevation: 8,
-    ),
-    inputDecorationTheme: InputDecorationTheme(
-      filled: true,
-      fillColor: AppColors.darkSurface,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.primaryLight, width: 1.5),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      hintStyle: const TextStyle(color: AppColors.darkIcon),
-    ),
-    elevatedButtonTheme: ElevatedButtonThemeData(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.textWhite,
-        minimumSize: const Size(double.infinity, 52),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: 0,
-      ),
-    ),
-    dividerTheme: const DividerThemeData(
-      color: AppColors.darkDivider,
-      thickness: 0.5,
-    ),
-    dialogTheme: DialogThemeData(
-      backgroundColor: AppColors.darkSurface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-    ),
-    bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: AppColors.darkSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-    ),
-    cardTheme: CardThemeData(
-      color: AppColors.darkSurface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    ),
-    snackBarTheme: SnackBarThemeData(
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ),
-  );
+  // Light theme maps to same dark scheme for consistency
+  static ThemeData get light => dark;
 }

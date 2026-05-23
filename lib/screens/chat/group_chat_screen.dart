@@ -1,121 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../core/constants/app_colors.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../theme.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
-import '../../widgets/chat/chat_input_bar.dart';
 import '../../widgets/common/user_avatar.dart';
+import '../../widgets/common/loading_widget.dart';
+import '../../widgets/common/empty_state.dart';
+import '../../widgets/chat/message_bubble.dart';
+import '../../widgets/chat/chat_input_bar.dart';
 
 class GroupChatScreen extends ConsumerStatefulWidget {
   final String groupId;
   final GroupModel? group;
-  const GroupChatScreen({super.key, required this.groupId, this.group});
+
+  const GroupChatScreen({
+    super.key,
+    required this.groupId,
+    this.group,
+  });
+
   @override
   ConsumerState<GroupChatScreen> createState() => _GroupChatScreenState();
 }
 
 class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
-  final _textCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  bool _showEmoji = false;
-  GroupMessageModel? _replyTo;
-  List<GroupMessageModel> _messages = [];
-  GroupModel? _group;
-  List<GroupMemberModel> _members = [];
-  bool _loading = false;
 
-  bool _showMentionSuggestions = false;
-  List<GroupMemberModel> _mentionSuggestions = [];
-  late final ProviderSubscription _realtimeSub;
+  GroupModel? _group;
+  List<UserModel> _members = [];
+  bool _loadingGroup = false;
+  MessageModel? _replyTo;
+  bool _showInfo = false;
+  bool _enterToSend = false;
 
   @override
   void initState() {
     super.initState();
     _group = widget.group;
-    _loadData();
-    _listenRealtime();
-    _textCtrl.addListener(_handleMentions);
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _loading = true);
-    try {
-      final msgs =
-          await ref.read(groupServiceProvider).fetchGroupMessages(widget.groupId);
-      final members =
-          await ref.read(groupServiceProvider).fetchMembers(widget.groupId);
-      if (!mounted) return;
-      setState(() {
-        _members = members;
-        _messages = _attachSenderUsers(msgs.reversed.toList());
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _listenRealtime() {
-    _realtimeSub =
-        ref.listenManual(streamGroupMessagesProvider(widget.groupId), (_, next) {
-      final rows = next.value;
-      if (rows == null || !mounted) return;
-      final msgs = rows.map((m) => GroupMessageModel.fromMap(m)).toList();
-      setState(() => _messages = _attachSenderUsers(msgs));
-    });
-  }
-
-  List<GroupMessageModel> _attachSenderUsers(List<GroupMessageModel> msgs) {
-    final byId = <String, UserModel>{};
-    for (final m in _members) {
-      final u = m.user;
-      if (u != null) byId[m.userId] = u;
-    }
-    for (final msg in msgs) {
-      msg.senderUser = byId[msg.senderId];
-    }
-    return msgs;
-  }
-
-  Future<void> _sendText() async {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) return;
-    _textCtrl.clear();
-    final myId = ref.read(authServiceProvider).currentUserId;
-    final senderMember = _members.firstWhere(
-      (m) => m.userId == myId,
-      orElse: () => GroupMemberModel(
-        id: '',
-        groupId: widget.groupId,
-        userId: myId,
-        joinedAt: DateTime.now(),
-      ),
-    );
-    final mentions = _extractMentions(text);
-    final msg = await ref.read(groupServiceProvider).sendGroupMessage(
-      groupId: widget.groupId,
-      text: text,
-      replyTo: _replyTo?.id,
-      replyPreview: _replyTo?.text ?? '',
-      replySenderName: _replyTo?.senderUser?.name ?? '',
-      mentions: mentions,
-    );
-    msg.senderUser = senderMember.user;
-    setState(() {
-      _messages.add(msg);
-      _replyTo = null;
-      _showMentionSuggestions = false;
-    });
-    _scrollToBottom();
+    if (_group == null) _loadGroup();
+    _loadPrefs();
   }
 
   @override
   void dispose() {
-    _textCtrl.removeListener(_handleMentions);
-    _realtimeSub.close();
-    _textCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await ref.read(settingsProvider.future);
+    if (mounted) {
+      setState(() => _enterToSend = prefs.getBool('enter_to_send') ?? false);
+    }
+  }
+
+  Future<void> _loadGroup() async {
+    setState(() => _loadingGroup = true);
+    try {
+      // Fetch the group record directly
+      final db = Supabase.instance.client;
+      final groupData = await db
+          .from('groups')
+          .select()
+          .eq('id', widget.groupId)
+          .maybeSingle();
+      if (groupData != null && mounted) {
+        setState(() => _group = GroupModel.fromMap(groupData));
+      }
+
+      // Fetch members (GroupMemberModel has .user attached)
+      final memberModels =
+          await ref.read(groupServiceProvider).fetchMembers(widget.groupId);
+      final users = memberModels
+          .map((m) => m.user)
+          .whereType<UserModel>()
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          _members = users;
+          _loadingGroup = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingGroup = false);
+    }
   }
 
   void _scrollToBottom() {
@@ -123,544 +96,463 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
+          duration: const Duration(milliseconds: 150),
           curve: Curves.easeOut,
         );
       }
     });
   }
 
-  void _handleMentions() {
-    final text = _textCtrl.text;
-    final cursor = _textCtrl.selection.baseOffset;
-    final idx = cursor >= 0 ? cursor : text.length;
-    final before = idx <= text.length ? text.substring(0, idx) : text;
-    final at = before.lastIndexOf('@');
-    if (at < 0) {
-      if (_showMentionSuggestions) {
-        setState(() {
-          _showMentionSuggestions = false;
-          _mentionSuggestions = [];
-        });
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  UserModel? _memberById(String id) {
+    try {
+      return _members.firstWhere((m) => m.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _sendText(String text) async {
+    try {
+      await ref.read(groupServiceProvider).sendGroupMessage(
+            groupId: widget.groupId,
+            text: text,
+            replyTo: _replyTo?.id,
+            replyPreview: _replyTo?.text ?? '',
+          );
+      setState(() => _replyTo = null);
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Send failed: $e')),
+        );
       }
-      return;
     }
-    // Stop if there is a whitespace after '@' (means mention token finished)
-    final q = before.substring(at + 1);
-    if (q.contains(' ') || q.contains('\n') || q.contains('\t')) {
-      if (_showMentionSuggestions) {
-        setState(() {
-          _showMentionSuggestions = false;
-          _mentionSuggestions = [];
-        });
+  }
+
+  Future<void> _sendVoice(Uint8List bytes, int durationMs, String ext) async {
+    try {
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final path = '${widget.groupId}/voice_$ts.$ext';
+      final db = Supabase.instance.client;
+      await db.storage
+          .from('voice_notes')
+          .uploadBinary(path, bytes,
+              fileOptions:
+                  const FileOptions(contentType: 'audio/m4a'));
+      final url = db.storage.from('voice_notes').getPublicUrl(path);
+      await ref.read(groupServiceProvider).sendGroupMessage(
+            groupId: widget.groupId,
+            text: '',
+            type: MessageType.audio,
+            mediaUrl: url,
+            fileName: 'voice_$ts.$ext',
+          );
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Send failed: $e')));
       }
-      return;
     }
-
-    final query = q.trim().toLowerCase();
-    final suggestions = _members
-        .where((m) => m.user != null)
-        .where((m) => m.user!.name.toLowerCase().contains(query))
-        .take(6)
-        .toList();
-
-    setState(() {
-      _mentionSuggestions = suggestions;
-      _showMentionSuggestions = suggestions.isNotEmpty;
-    });
   }
 
-  void _insertMention(GroupMemberModel member) {
-    final u = member.user;
-    if (u == null) return;
-    final namePart = u.name.trim().split(' ').first;
-    final text = _textCtrl.text;
-    final cursor = _textCtrl.selection.baseOffset;
-    final idx = cursor >= 0 ? cursor : text.length;
-    final before = idx <= text.length ? text.substring(0, idx) : text;
-    final after = idx <= text.length ? text.substring(idx) : '';
-    final at = before.lastIndexOf('@');
-    if (at < 0) return;
-    final newText = '${before.substring(0, at)}@$namePart $after';
-    _textCtrl.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(
-          offset: (before.substring(0, at).length + namePart.length + 2)),
-    );
-    setState(() {
-      _showMentionSuggestions = false;
-      _mentionSuggestions = [];
-    });
-  }
-
-  List<String> _extractMentions(String text) {
-    // We insert mentions as @FirstName, so we map that back to userId.
-    final words = text.split(RegExp(r'\s+'));
-    final mentionedNames = words
-        .where((w) => w.startsWith('@') && w.length > 1)
-        .map((w) => w.substring(1).toLowerCase())
-        .toSet();
-    if (mentionedNames.isEmpty) return [];
-    final ids = <String>[];
-    for (final m in _members) {
-      final u = m.user;
-      if (u == null) continue;
-      final first = u.name.trim().split(' ').first.toLowerCase();
-      if (mentionedNames.contains(first)) ids.add(m.userId);
+  Future<void> _sendFile(
+      Uint8List bytes, String fileName, MessageType type) async {
+    try {
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final bucket = type == MessageType.image
+          ? 'chat_media'
+          : type == MessageType.document
+              ? 'documents'
+              : 'chat_media';
+      final path = '${widget.groupId}/${ts}_$fileName';
+      final db = Supabase.instance.client;
+      await db.storage
+          .from(bucket)
+          .uploadBinary(path, bytes);
+      final url = db.storage.from(bucket).getPublicUrl(path);
+      await ref.read(groupServiceProvider).sendGroupMessage(
+            groupId: widget.groupId,
+            text: '',
+            type: type,
+            mediaUrl: url,
+            fileName: fileName,
+          );
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Send failed: $e')));
+      }
     }
-    return ids;
   }
 
-  Future<void> _showAttachSheet() async {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Wrap(spacing: 20, runSpacing: 16, children: [
-          _AttachItem(
-            icon: Icons.poll_outlined,
-            label: 'Poll',
-            color: Colors.deepPurple,
-            onTap: () {
-              Navigator.pop(context);
-              _showCreatePollDialog();
-            },
-          ),
-        ]),
-      ),
-    );
-  }
+  @override
+  Widget build(BuildContext context) {
+    final uid = ref.watch(currentUserIdProvider);
 
-  Future<void> _showCreatePollDialog() async {
-    final qCtrl = TextEditingController();
-    final opt1 = TextEditingController();
-    final opt2 = TextEditingController();
-    bool allowMultiple = false;
-
-    await showDialog(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          title: const Text('Create poll'),
-          content: SizedBox(
-            width: 420,
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: Row(
+        children: [
+          // Main chat column
+          Expanded(
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: qCtrl,
-                  decoration: const InputDecoration(labelText: 'Question'),
+                // Header
+                _GroupChatHeader(
+                  group: _group,
+                  memberCount: _members.length,
+                  loading: _loadingGroup,
+                  onBack: () => context.canPop()
+                      ? context.pop()
+                      : context.go('/home'),
+                  onInfo: () => setState(() => _showInfo = !_showInfo),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: opt1,
-                  decoration: const InputDecoration(labelText: 'Option 1'),
+                const Divider(height: 1),
+
+                // Messages
+                Expanded(
+                  child: StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: ref
+                        .read(groupServiceProvider)
+                        .streamGroupMessages(widget.groupId),
+                    builder: (ctx, snap) {
+                      if (snap.hasError) return ErrorState(error: snap.error);
+                      if (!snap.hasData) return const LoadingWidget();
+
+                      final rows = snap.data!;
+                      if (rows.isEmpty) {
+                        return EmptyState(
+                          icon: Icons.group_outlined,
+                          title: _group?.name ?? 'Group Chat',
+                          subtitle: 'Be the first to send a message!',
+                        );
+                      }
+
+                      final msgs = rows
+                          .map((r) => MessageModel.fromMap(r))
+                          .toList();
+
+                      _scrollToBottom();
+
+                      return ListView.builder(
+                        controller: _scrollCtrl,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        itemCount: msgs.length,
+                        itemBuilder: (_, i) {
+                          final msg = msgs[i];
+                          final isSent = msg.senderId == uid;
+                          final sender = _memberById(msg.senderId);
+                          final showDate = i == 0 ||
+                              !_sameDay(
+                                  msgs[i - 1].createdAt, msg.createdAt);
+
+                          return Column(
+                            children: [
+                              if (showDate) _DateChip(dt: msg.createdAt),
+                              MessageBubble(
+                                message: msg,
+                                isSent: isSent,
+                                senderName: sender?.name,
+                                senderAvatarUrl: sender?.avatarUrl,
+                                showSenderName: !isSent,
+                                onReply: () =>
+                                    setState(() => _replyTo = msg),
+                                onCopy: msg.type == MessageType.text
+                                    ? () async {
+                                        final m = ScaffoldMessenger.of(context);
+                                        await Clipboard.setData(
+                                            ClipboardData(text: msg.text));
+                                        m.showSnackBar(
+                                          const SnackBar(
+                                              content: Text('Copied')),
+                                        );
+                                      }
+                                    : null,
+                                onForward: () {},
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: opt2,
-                  decoration: const InputDecoration(labelText: 'Option 2'),
-                ),
-                const SizedBox(height: 10),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Allow multiple answers'),
-                  value: allowMultiple,
-                  onChanged: (v) => setLocal(() => allowMultiple = v),
+
+                // Input bar
+                ChatInputBar(
+                  onSendText: _sendText,
+                  onSendVoice: _sendVoice,
+                  onSendFile: _sendFile,
+                  replyTo: _replyTo,
+                  onCancelReply: () => setState(() => _replyTo = null),
+                  enterToSend: _enterToSend,
                 ),
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () async {
-                final question = qCtrl.text.trim();
-                final o1 = opt1.text.trim();
-                final o2 = opt2.text.trim();
-                if (question.isEmpty || o1.isEmpty || o2.isEmpty) return;
-                try {
-                  final poll = await ref.read(groupServiceProvider).createPoll(
-                        groupId: widget.groupId,
-                        question: question,
-                        options: [o1, o2],
-                        allowMultiple: allowMultiple,
-                      );
-                  await ref.read(groupServiceProvider).sendGroupMessage(
-                        groupId: widget.groupId,
-                        text: question,
-                        type: MessageType.poll,
-                        mediaUrl: poll.id, // pollId stored here
-                      );
-                } finally {
-                  if (context.mounted) Navigator.pop(context);
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        ),
-      ),
-    );
 
-    qCtrl.dispose();
-    opt1.dispose();
-    opt2.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final myId = ref.read(authServiceProvider).currentUserId;
-
-    return Scaffold(
-      backgroundColor: AppColors.chatBg,
-      appBar: AppBar(
-        leadingWidth: 30,
-        title: GestureDetector(
-          onTap: () => context.push('/group-info/${widget.groupId}'),
-          child: Row(children: [
-            CircleAvatar(
-              radius: 18, backgroundColor: AppColors.accentGreen,
-              backgroundImage: (_group?.iconUrl.isNotEmpty == true)
-                  ? NetworkImage(_group!.iconUrl) : null,
-              child: _group?.iconUrl.isEmpty != false
-                  ? const Icon(Icons.group, color: Colors.white, size: 18) : null,
-            ),
-            const SizedBox(width: 10),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_group?.name ?? 'Group',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-              Text('${_members.length} members',
-                style: const TextStyle(fontSize: 11, color: Colors.white70)),
-            ]),
-          ]),
-        ),
-        actions: [
-          IconButton(icon: const Icon(Icons.videocam), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.call), onPressed: () {}),
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () => context.push('/group-info/${widget.groupId}'),
-          ),
-        ],
-      ),
-      body: Column(children: [
-        if (_loading)
-          const LinearProgressIndicator(color: AppColors.accentGreen),
-        Expanded(
-          child: _messages.isEmpty
-            ? const Center(child: Text('No messages yet', style: TextStyle(color: AppColors.textHint)))
-            : ListView.builder(
-                controller: _scrollCtrl,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                itemCount: _messages.length,
-                itemBuilder: (_, i) {
-                  final msg = _messages[i];
-                  if (msg.deletedForEveryone) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-                      child: Center(child: Text('🚫 This message was deleted',
-                        style: TextStyle(color: AppColors.textHint, fontStyle: FontStyle.italic, fontSize: 12))),
-                    );
-                  }
-                  return _GroupMessageBubble(
-                    msg: msg, isMe: msg.senderId == myId,
-                    onReply: (m) => setState(() => _replyTo = m),
-                  );
+          // Info panel (collapsible right side)
+          if (_showInfo) ...[
+            const VerticalDivider(width: 1),
+            SizedBox(
+              width: 280,
+              child: _GroupInfoPanel(
+                group: _group,
+                members: _members,
+                currentUserId: uid,
+                onClose: () => setState(() => _showInfo = false),
+                onLeave: () async {
+                  final router = GoRouter.of(context);
+                  await ref
+                      .read(groupServiceProvider)
+                      .leaveGroup(widget.groupId);
+                  if (mounted) router.go('/home');
                 },
               ),
-        ),
-        if (_replyTo != null)
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(children: [
-              Container(width: 4, height: 40, color: AppColors.accentGreen),
-              const SizedBox(width: 8),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(_replyTo!.senderUser?.name ?? 'Unknown',
-                  style: const TextStyle(color: AppColors.accentGreen, fontWeight: FontWeight.bold, fontSize: 12)),
-                Text(_replyTo!.text, maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-              ])),
-              IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _replyTo = null)),
-            ]),
-          ),
-        if (_showMentionSuggestions)
-          Container(
-            color: Colors.white,
-            constraints: const BoxConstraints(maxHeight: 180),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: _mentionSuggestions.length,
-              itemBuilder: (_, i) {
-                final m = _mentionSuggestions[i];
-                final u = m.user;
-                if (u == null) return const SizedBox.shrink();
-                return ListTile(
-                  dense: true,
-                  leading: UserAvatar(url: u.avatarUrl, name: u.name, radius: 16),
-                  title: Text(u.name, style: const TextStyle(fontSize: 13)),
-                  onTap: () => _insertMention(m),
-                );
-              },
             ),
-          ),
-        ChatInputBar(
-          controller: _textCtrl,
-          isRecording: false,
-          onSend: _sendText,
-          onEmoji: () => setState(() => _showEmoji = !_showEmoji),
-          onAttach: _showAttachSheet,
-          onStartRecord: () {},
-          onStopRecord: () {},
-          onCamera: () {},
-        ),
-      ]),
-    );
-  }
-}
-
-class _GroupMessageBubble extends StatelessWidget {
-  final GroupMessageModel msg;
-  final bool isMe;
-  final void Function(GroupMessageModel) onReply;
-  const _GroupMessageBubble({required this.msg, required this.isMe, required this.onReply});
-
-  @override
-  Widget build(BuildContext context) {
-    final bubble = Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-        constraints:
-            BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isMe ? AppColors.sentBubble : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(12),
-            topRight: const Radius.circular(12),
-            bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
-            bottomRight: isMe ? Radius.zero : const Radius.circular(12),
-          ),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withAlpha(15),
-                blurRadius: 2,
-                offset: const Offset(0, 1))
           ],
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (!isMe)
-            Text(msg.senderUser?.name ?? 'Unknown',
-                style: const TextStyle(
-                    color: AppColors.accentGreen,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12)),
-          if (msg.replyTo != null)
-            Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                  color: Colors.black.withAlpha(10),
-                  borderRadius: BorderRadius.circular(8)),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(msg.replySenderName,
-                    style: const TextStyle(
-                        color: AppColors.accentGreen,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold)),
-                Text(msg.replyPreview,
-                    maxLines: 1,
-                    style: const TextStyle(
-                        fontSize: 11, color: AppColors.textSecondary)),
-              ]),
-            ),
-          if (msg.type == MessageType.poll)
-            _PollBubble(pollId: msg.mediaUrl, question: msg.text)
-          else
-            Text(msg.text,
-                style: const TextStyle(
-                    fontSize: 15, color: AppColors.textPrimary)),
-          const SizedBox(height: 2),
-          Text(_formatTime(msg.createdAt),
-              style: const TextStyle(fontSize: 10, color: AppColors.textHint)),
-        ]),
-      ),
-    );
-
-    // Swipe right to reply (same behaviour as private chat)
-    return Dismissible(
-      key: ValueKey('gmsg-${msg.id}'),
-      direction: DismissDirection.startToEnd,
-      confirmDismiss: (_) async {
-        onReply(msg);
-        return false;
-      },
-      background: Container(
-        margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.only(left: 24),
-        child: const Icon(Icons.reply, color: AppColors.primaryGreen),
-      ),
-      child: bubble,
-    );
-  }
-
-  String _formatTime(DateTime dt) {
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-}
-
-class _AttachItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  const _AttachItem(
-      {required this.icon,
-      required this.label,
-      required this.color,
-      required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration:
-              BoxDecoration(color: color.withAlpha(20), shape: BoxShape.circle),
-          child: Icon(icon, color: color, size: 28),
-        ),
-        const SizedBox(height: 6),
-        Text(label,
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-      ]),
-    );
-  }
-}
-
-class _PollBubble extends ConsumerStatefulWidget {
-  final String pollId;
-  final String question;
-  const _PollBubble({required this.pollId, required this.question});
-
-  @override
-  ConsumerState<_PollBubble> createState() => _PollBubbleState();
-}
-
-class _PollBubbleState extends ConsumerState<_PollBubble> {
-  int _refreshKey = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    final ref = this.ref;
-    final pollId = widget.pollId;
-    final question = widget.question;
-    if (pollId.isEmpty) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          Icon(Icons.poll_outlined, size: 18, color: AppColors.textSecondary),
-          SizedBox(width: 8),
-          Text('Poll', style: TextStyle(color: AppColors.textSecondary)),
         ],
-      );
-    }
+      ),
+    );
+  }
+}
 
-    return FutureBuilder<PollModel?>(
-      key: ValueKey('poll-$pollId-$_refreshKey'),
-      future: ref.read(groupServiceProvider).getPoll(pollId),
-      builder: (context, snap) {
-        final poll = snap.data;
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 6),
-            child: SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+// ─── Group header ─────────────────────────────────────
+
+class _GroupChatHeader extends StatelessWidget {
+  final GroupModel? group;
+  final int memberCount;
+  final bool loading;
+  final VoidCallback onBack;
+  final VoidCallback onInfo;
+
+  const _GroupChatHeader({
+    required this.group,
+    required this.memberCount,
+    required this.loading,
+    required this.onBack,
+    required this.onInfo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: AppSizes.headerHeight,
+      color: AppColors.panel,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, size: 20),
+            onPressed: onBack,
+          ),
+          UserAvatar(
+            imageUrl:
+                group?.iconUrl.isNotEmpty == true ? group!.iconUrl : null,
+            name: group?.name ?? '?',
+            size: 38,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: InkWell(
+              onTap: onInfo,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    group?.name ?? (loading ? 'Loading...' : 'Group'),
+                    style: AppText.name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    memberCount > 0
+                        ? '$memberCount members'
+                        : 'Tap for info',
+                    style: AppText.caption,
+                  ),
+                ],
+              ),
             ),
-          );
-        }
-        if (poll == null) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.poll_outlined,
-                  size: 18, color: AppColors.textSecondary),
-              const SizedBox(width: 8),
-              Text(question,
-                  style: const TextStyle(
-                      fontSize: 14, color: AppColors.textPrimary)),
-            ],
-          );
-        }
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam_outlined, size: 20),
+            tooltip: 'Group Video Call',
+            onPressed: () {},
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outlined, size: 20),
+            tooltip: 'Group Info',
+            onPressed: onInfo,
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-        return FutureBuilder<Map<int, int>>(
-          key: ValueKey('poll-count-$pollId-$_refreshKey'),
-          future: ref.read(groupServiceProvider).getPollCounts(poll.id),
-          builder: (context, countSnap) {
-            final counts = countSnap.data ?? {};
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: const [
-                    Icon(Icons.poll_outlined,
-                        size: 18, color: AppColors.textSecondary),
-                    SizedBox(width: 8),
-                    Text('Poll',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary)),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(poll.question,
-                    style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary)),
-                const SizedBox(height: 8),
-                for (int i = 0; i < poll.options.length; i++)
+// ─── Group info panel ─────────────────────────────────
+
+class _GroupInfoPanel extends StatelessWidget {
+  final GroupModel? group;
+  final List<UserModel> members;
+  final String currentUserId;
+  final VoidCallback onClose;
+  final VoidCallback onLeave;
+
+  const _GroupInfoPanel({
+    required this.group,
+    required this.members,
+    required this.currentUserId,
+    required this.onClose,
+    required this.onLeave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.panel,
+      child: Column(
+        children: [
+          SizedBox(
+            height: AppSizes.headerHeight,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Text('Group Info', style: AppText.title),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: onClose,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        await ref
-                            .read(groupServiceProvider)
-                            .votePoll(poll.id, i);
-                        if (!mounted) return;
-                        setState(() => _refreshKey++);
-                      },
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(poll.options[i])),
-                          Text('${counts[i] ?? 0}',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textSecondary)),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        UserAvatar(
+                          imageUrl: group?.iconUrl.isNotEmpty == true
+                              ? group!.iconUrl
+                              : null,
+                          name: group?.name ?? '?',
+                          size: 72,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(group?.name ?? '', style: AppText.title,
+                            textAlign: TextAlign.center),
+                        Text('${members.length} members',
+                            style: AppText.bodyGrey),
+                        if (group?.description.isNotEmpty == true) ...[
+                          const SizedBox(height: 6),
+                          Text(group!.description,
+                              style: AppText.bodyGrey,
+                              textAlign: TextAlign.center),
                         ],
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                    child: Text('Members',
+                        style: AppText.caption
+                            .copyWith(fontWeight: FontWeight.w600)),
+                  ),
+                  ...members.map((m) => ListTile(
+                        dense: true,
+                        leading: UserAvatar(
+                            imageUrl: m.avatarUrl,
+                            name: m.name,
+                            size: 36),
+                        title: Text(
+                          m.name +
+                              (m.id == currentUserId ? ' (You)' : ''),
+                          style: AppText.body,
+                        ),
+                        subtitle: Text(m.bio,
+                            style: AppText.caption,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                      )),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 40,
+                      child: OutlinedButton.icon(
+                        onPressed: onLeave,
+                        icon: const Icon(Icons.exit_to_app,
+                            size: 16, color: AppColors.danger),
+                        label: const Text('Leave Group'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.danger,
+                          side: const BorderSide(
+                              color: AppColors.danger),
+                        ),
                       ),
                     ),
                   ),
-              ],
-            );
-          },
-        );
-      },
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Date chip ────────────────────────────────────────
+
+class _DateChip extends StatelessWidget {
+  final DateTime dt;
+  const _DateChip({required this.dt});
+
+  String get _label {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Yesterday';
+    return DateFormat('MMMM d, y').format(dt);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.border,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(_label, style: AppText.caption),
+        ),
+      ),
     );
   }
 }

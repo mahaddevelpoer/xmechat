@@ -1,87 +1,505 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/constants/app_colors.dart';
-import '../../providers/providers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+import '../../theme.dart';
+import '../../models/models.dart';
 
-class ChatInputBar extends ConsumerWidget {
-  final TextEditingController controller;
-  final VoidCallback onSend;
-  final VoidCallback? onCamera;
-  final VoidCallback? onAttach;
-  final VoidCallback? onStartRecord;
-  final VoidCallback? onStopRecord;
-  final VoidCallback? onEmoji;
-  final bool isRecording;
+/// Callback signatures
+typedef OnSendText   = void Function(String text);
+typedef OnSendVoice  = void Function(Uint8List bytes, int durationMs, String ext);
+typedef OnSendFile   = void Function(Uint8List bytes, String fileName, MessageType type);
+
+/// Full input bar widget.
+/// Handles text input, voice recording, and file attachment.
+/// Mic icon → hold to record, release to send.
+/// Send icon → send text.
+/// Shows recording UI while recording.
+class ChatInputBar extends StatefulWidget {
+  final OnSendText  onSendText;
+  final OnSendVoice onSendVoice;
+  final OnSendFile  onSendFile;
+  final MessageModel? replyTo;
+  final VoidCallback? onCancelReply;
+  final bool enterToSend;
 
   const ChatInputBar({
     super.key,
-    required this.controller,
-    required this.onSend,
-    this.onCamera,
-    this.onAttach,
-    this.onStartRecord,
-    this.onStopRecord,
-    this.onEmoji,
-    this.isRecording = false,
+    required this.onSendText,
+    required this.onSendVoice,
+    required this.onSendFile,
+    this.replyTo,
+    this.onCancelReply,
+    this.enterToSend = false,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enterToSend = ref.watch(enterToSendProvider);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      color: AppColors.bgSecondary,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.add, color: AppColors.textHint, size: 28),
-            onPressed: onAttach,
+  State<ChatInputBar> createState() => _ChatInputBarState();
+}
+
+class _ChatInputBarState extends State<ChatInputBar> {
+  final _textCtrl  = TextEditingController();
+  final _focusNode = FocusNode();
+  final _recorder  = AudioRecorder();
+
+  bool _isRecording  = false;
+  bool _hasMicPerm   = false;
+  Timer? _recordTimer;
+  int   _recordSecs  = 0;
+  String? _recordPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _textCtrl.addListener(() => setState(() {}));
+    _checkMicPerm();
+  }
+
+  @override
+  void dispose() {
+    _textCtrl.dispose();
+    _focusNode.dispose();
+    _recordTimer?.cancel();
+    _recorder.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkMicPerm() async {
+    final has = await _recorder.hasPermission();
+    if (mounted) setState(() => _hasMicPerm = has);
+  }
+
+  bool get _hasText => _textCtrl.text.trim().isNotEmpty;
+
+  // ── Send text ───────────────────────────────────────
+  void _sendText() {
+    final t = _textCtrl.text.trim();
+    if (t.isEmpty) return;
+    _textCtrl.clear();
+    widget.onSendText(t);
+  }
+
+  // ── Attach file ─────────────────────────────────────
+  Future<void> _attachFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      withData: true,
+      allowMultiple: false,
+      type: FileType.any,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final f = result.files.first;
+    if (f.bytes == null) return;
+
+    MessageType type = MessageType.document;
+    final ext = (f.extension ?? '').toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext)) {
+      type = MessageType.image;
+    } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].contains(ext)) {
+      type = MessageType.video;
+    } else if (['mp3', 'm4a', 'aac', 'wav', 'ogg'].contains(ext)) {
+      type = MessageType.audio;
+    }
+
+    widget.onSendFile(f.bytes!, f.name, type);
+  }
+
+  // ── Voice recording ─────────────────────────────────
+  Future<void> _startRecording() async {
+    if (!_hasMicPerm) {
+      final granted = await _recorder.hasPermission();
+      if (!granted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Microphone permission denied.')),
+          );
+        }
+        return;
+      }
+      setState(() => _hasMicPerm = true);
+    }
+
+    try {
+      final dir  = await getTemporaryDirectory();
+      _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: _recordPath!,
+      );
+
+      setState(() {
+        _isRecording = true;
+        _recordSecs  = 0;
+      });
+
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _recordSecs++);
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start recording: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _stopAndSend() async {
+    _recordTimer?.cancel();
+    if (!_isRecording) return;
+
+    try {
+      final path = await _recorder.stop();
+      setState(() => _isRecording = false);
+
+      if (path == null) return;
+      final file  = File(path);
+      final bytes = await file.readAsBytes();
+      await file.delete().catchError((_) => file as FileSystemEntity);
+
+      if (bytes.isEmpty) return;
+      widget.onSendVoice(bytes, _recordSecs * 1000, 'm4a');
+    } catch (e) {
+      setState(() => _isRecording = false);
+    }
+  }
+
+  Future<void> _cancelRecording() async {
+    _recordTimer?.cancel();
+    await _recorder.cancel();
+    if (mounted) setState(() { _isRecording = false; _recordSecs = 0; });
+  }
+
+  String _formatSecs(int s) {
+    final m = (s ~/ 60).toString().padLeft(2, '0');
+    final sec = (s % 60).toString().padLeft(2, '0');
+    return '$m:$sec';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Divider(height: 1),
+        if (_isRecording)
+          _RecordingBar(
+            seconds: _recordSecs,
+            onCancel: _cancelRecording,
+            onSend: _stopAndSend,
+            formatSecs: _formatSecs,
+          )
+        else
+          _NormalBar(
+            textCtrl: _textCtrl,
+            focusNode: _focusNode,
+            hasText: _hasText,
+            replyTo: widget.replyTo,
+            onCancelReply: widget.onCancelReply,
+            onAttach: _attachFile,
+            onSend: _sendText,
+            onStartRecording: _startRecording,
+            enterToSend: widget.enterToSend,
           ),
-          IconButton(
-            icon: const Icon(Icons.emoji_emotions_outlined, color: AppColors.textHint, size: 26),
-            onPressed: onEmoji ?? () {},
-          ),
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: TextField(
-                controller: controller,
-                decoration: const InputDecoration(
-                  hintText: 'Type a message',
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  fillColor: Colors.transparent,
+      ],
+    );
+  }
+}
+
+// ─── Normal input bar ────────────────────────────────
+
+class _NormalBar extends StatelessWidget {
+  final TextEditingController textCtrl;
+  final FocusNode focusNode;
+  final bool hasText;
+  final MessageModel? replyTo;
+  final VoidCallback? onCancelReply;
+  final VoidCallback onAttach;
+  final VoidCallback onSend;
+  final VoidCallback onStartRecording;
+  final bool enterToSend;
+
+  const _NormalBar({
+    required this.textCtrl,
+    required this.focusNode,
+    required this.hasText,
+    required this.replyTo,
+    required this.onCancelReply,
+    required this.onAttach,
+    required this.onSend,
+    required this.onStartRecording,
+    required this.enterToSend,
+  });
+
+  String _replyPreview(MessageModel m) {
+    switch (m.type) {
+      case MessageType.audio:   return '🎵 Voice note';
+      case MessageType.image:   return '📷 Photo';
+      case MessageType.video:   return '🎥 Video';
+      case MessageType.document: return '📄 Document';
+      default: return m.text.isNotEmpty ? m.text : '(Message)';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Reply preview inside input area
+        if (replyTo != null)
+          Container(
+            color: AppColors.accentLight,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+            child: Row(
+              children: [
+                Container(
+                    width: 3, height: 32, color: AppColors.accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Replying',
+                          style: AppText.caption.copyWith(
+                              color: AppColors.accent,
+                              fontWeight: FontWeight.w600)),
+                      Text(_replyPreview(replyTo!),
+                          style: AppText.bodyGrey,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
                 ),
-                maxLines: 6,
-                minLines: 1,
-                textInputAction: enterToSend ? TextInputAction.send : TextInputAction.newline,
-                onSubmitted: enterToSend ? (_) => onSend() : null,
-                style: const TextStyle(fontSize: 15),
-              ),
+                if (onCancelReply != null)
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    onPressed: onCancelReply,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 28, minHeight: 28),
+                  ),
+              ],
             ),
           ),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, child) {
-              bool hasText = value.text.trim().isNotEmpty;
-              return IconButton(
-                icon: Icon(
-                  hasText ? Icons.send : (isRecording ? Icons.stop : Icons.mic),
-                  color: isRecording ? AppColors.error : AppColors.textHint,
-                  size: 26,
+
+        // Input row
+        Container(
+          constraints:
+              const BoxConstraints(minHeight: AppSizes.inputBarHeight),
+          color: AppColors.panel,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Emoji button (placeholder — wiring emoji picker adds complexity)
+              Tooltip(
+                message: 'Emoji',
+                child: IconButton(
+                  icon: const Icon(Icons.emoji_emotions_outlined),
+                  color: AppColors.textGrey,
+                  onPressed: () {},
                 ),
-                onPressed: hasText 
-                    ? onSend 
-                    : (isRecording ? onStopRecord : onStartRecord),
-              );
-            },
+              ),
+
+              // Attach file
+              Tooltip(
+                message: 'Attach file',
+                child: IconButton(
+                  icon: const Icon(Icons.attach_file_outlined),
+                  color: AppColors.textGrey,
+                  onPressed: onAttach,
+                ),
+              ),
+
+              // Text field
+              Expanded(
+                child: TextField(
+                  controller: textCtrl,
+                  focusNode: focusNode,
+                  maxLines: 6,
+                  minLines: 1,
+                  style: AppText.body,
+                  textInputAction: enterToSend
+                      ? TextInputAction.send
+                      : TextInputAction.newline,
+                  onSubmitted: enterToSend ? (_) => onSend() : null,
+                  decoration: InputDecoration(
+                    hintText: 'Type a message...',
+                    hintStyle: AppText.hint,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide:
+                          const BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide:
+                          const BorderSide(color: AppColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: const BorderSide(
+                          color: AppColors.accent, width: 1.5),
+                    ),
+                    filled: true,
+                    fillColor: AppColors.bg,
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              // Send / Mic button
+              if (hasText)
+                Tooltip(
+                  message: 'Send',
+                  child: InkWell(
+                    onTap: onSend,
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: AppColors.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.send_rounded,
+                          color: AppColors.white, size: 18),
+                    ),
+                  ),
+                )
+              else
+                Tooltip(
+                  message: 'Voice note',
+                  child: GestureDetector(
+                    onLongPressStart: (_) => onStartRecording(),
+                    onLongPressEnd: (_) {},
+                    child: IconButton(
+                      icon: const Icon(Icons.mic_outlined),
+                      color: AppColors.textGrey,
+                      onPressed: onStartRecording,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Recording bar ────────────────────────────────────
+
+class _RecordingBar extends StatelessWidget {
+  final int seconds;
+  final VoidCallback onCancel;
+  final VoidCallback onSend;
+  final String Function(int) formatSecs;
+
+  const _RecordingBar({
+    required this.seconds,
+    required this.onCancel,
+    required this.onSend,
+    required this.formatSecs,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: AppSizes.inputBarHeight,
+      color: AppColors.panel,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          // Red pulsing dot
+          _PulsingDot(),
+          const SizedBox(width: 10),
+          Text(
+            'Recording... ${formatSecs(seconds)}',
+            style: AppText.body.copyWith(color: AppColors.danger),
+          ),
+          const Spacer(),
+          // Cancel
+          TextButton.icon(
+            onPressed: onCancel,
+            icon: const Icon(Icons.close, size: 16, color: AppColors.danger),
+            label: const Text('Cancel',
+                style: TextStyle(
+                    fontFamily: 'Segoe UI',
+                    fontSize: 13,
+                    color: AppColors.danger)),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+          ),
+          const SizedBox(width: 8),
+          // Send recording
+          InkWell(
+            onTap: onSend,
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: const BoxDecoration(
+                color: AppColors.accent,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.send_rounded,
+                  color: AppColors.white, size: 18),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PulsingDot extends StatefulWidget {
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
+    _anim = Tween(begin: 0.4, end: 1.0).animate(_ctrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _anim,
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: AppColors.danger,
+          shape: BoxShape.circle,
+        ),
       ),
     );
   }

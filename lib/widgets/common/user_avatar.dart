@@ -1,84 +1,119 @@
 import 'package:flutter/material.dart';
-import '../../core/constants/app_colors.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../theme.dart';
 
-/// A reusable avatar widget used throughout XmeChat.
-///
-/// * [url] – Network image url for the user's avatar; if null a placeholder with
-///   the user's initials is shown.
-/// * [name] – Full name of the user; used to generate initials when no image is
-///   available.
-/// * [isOnline] – When true a small green dot is displayed at the bottom‑right
-///   corner to indicate the user is currently online.
-/// * [radius] – Avatar size; defaults to 24.
+/// A reusable circular avatar with optional online indicator dot.
+/// Falls back to an initials circle when no URL is provided.
 class UserAvatar extends StatelessWidget {
-  final String? url;
+  final String? imageUrl;
   final String name;
+  final double size;
+  final bool showOnline;
   final bool isOnline;
-  final double radius;
-  final Color? borderColor;
+  final VoidCallback? onTap;
 
   const UserAvatar({
     super.key,
-    this.url,
+    this.imageUrl,
     required this.name,
+    this.size = AppSizes.avatarMd,
+    this.showOnline = false,
     this.isOnline = false,
-    this.radius = 24,
-    this.borderColor,
+    this.onTap,
   });
 
   String get _initials {
-    final parts = name.trim().split(' ');
-    if (parts.isEmpty) return '';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || name.trim().isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  Color get _bgColor {
+    // Deterministic color from name
+    const colors = [
+      Color(0xFF2B7A0B),
+      Color(0xFF1565C0),
+      Color(0xFF6A1B9A),
+      Color(0xFFC62828),
+      Color(0xFF00695C),
+      Color(0xFFE65100),
+      Color(0xFF4527A0),
+      Color(0xFF283593),
+    ];
+    if (name.isEmpty) return colors[0];
+    final idx = name.codeUnitAt(0) % colors.length;
+    return colors[idx];
   }
 
   @override
   Widget build(BuildContext context) {
-    Widget avatar = CircleAvatar(
-      radius: radius,
-      backgroundColor: AppColors.bgSecondary,
-      backgroundImage: url != null ? NetworkImage(url!) : null,
-      child: url == null
-          ? Text(
-              _initials,
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold,
-                fontSize: radius * 0.6,
-              ),
-            )
-          : null,
+    Widget avatar = SizedBox(
+      width: size,
+      height: size,
+      child: ClipOval(
+        child: _buildImage(),
+      ),
     );
 
-    if (borderColor != null) {
-      avatar = Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: borderColor!, width: 2),
-        ),
-        child: avatar,
-      );
+    if (onTap != null) {
+      avatar = GestureDetector(onTap: onTap, child: avatar);
     }
 
-    if (!isOnline) return avatar;
+    if (!showOnline) return avatar;
+
+    final dotSize = size * 0.28;
     return Stack(
+      clipBehavior: Clip.none,
       children: [
         avatar,
         Positioned(
           right: 0,
           bottom: 0,
           child: Container(
-            width: radius * 0.35,
-            height: radius * 0.35,
+            width: dotSize,
+            height: dotSize,
             decoration: BoxDecoration(
-              color: AppColors.accentGreen,
+              color: isOnline ? AppColors.online : AppColors.textHint,
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
+              border: Border.all(color: AppColors.white, width: 1.5),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildImage() {
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
+      return CachedNetworkImage(
+        imageUrl: imageUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => _initialsCircle(),
+        errorWidget: (_, __, ___) => _initialsCircle(),
+      );
+    }
+    return _initialsCircle();
+  }
+
+  Widget _initialsCircle() {
+    return Container(
+      width: size,
+      height: size,
+      color: _bgColor,
+      alignment: Alignment.center,
+      child: Text(
+        _initials,
+        style: TextStyle(
+          fontFamily: 'Segoe UI',
+          fontSize: size * 0.36,
+          fontWeight: FontWeight.w600,
+          color: AppColors.white,
+          height: 1,
+        ),
+      ),
     );
   }
 }

@@ -1,102 +1,88 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../core/constants/app_colors.dart';
-import '../../providers/providers.dart';
+import '../../theme.dart';
+import '../../services/auth_service.dart';
 
-class SplashScreen extends ConsumerStatefulWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
   @override
-  ConsumerState<SplashScreen> createState() => _SplashScreenState();
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends ConsumerState<SplashScreen>
+class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _fade;
-  late Animation<double> _scale;
+  late final AnimationController _ctrl;
+  late final Animation<double> _fade;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
-    _fade = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
-    _scale = Tween<double>(begin: 0.8, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
-    _navigate();
+    _checkAuth();
   }
 
-  Future<void> _navigate() async {
-    await Future.delayed(const Duration(seconds: 2));
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkAuth() async {
+    await Future.delayed(const Duration(milliseconds: 900));
     if (!mounted) return;
-    final session = Supabase.instance.client.auth.currentSession;
-    final user = session?.user ?? Supabase.instance.client.auth.currentUser;
+
+    final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
       context.go('/login');
       return;
     }
-    try {
-      final refresh = await Supabase.instance.client.auth.refreshSession();
-      if (refresh.session == null && mounted) {
-        context.go('/login');
-        return;
-      }
-    } catch (_) {}
-    if (!mounted) return;
-    final hasProfile = await ref.read(authServiceProvider).hasProfile();
+
+    final hasProfile = await AuthService().hasProfile();
     if (!mounted) return;
     context.go(hasProfile ? '/home' : '/profile-setup');
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: Center(
-        child: FadeTransition(
-          opacity: _fade,
-          child: ScaleTransition(
-            scale: _scale,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 160,
-                  height: 160,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      center: Alignment.center,
-                      radius: 0.6,
-                      colors: [
-                        AppColors.secondary.withAlpha(30),
-                        AppColors.secondary.withAlpha(10),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.chat_bubble_outline,
-                    size: 80,
-                    color: AppColors.primary,
-                  ),
+      backgroundColor: AppColors.white,
+      body: FadeTransition(
+        opacity: _fade,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: AppColors.accent,
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Deep Space',
-                  style: TextStyle(
-                    color: AppColors.primary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: const Icon(
+                  Icons.chat_rounded,
+                  color: AppColors.white,
+                  size: 38,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              Text('XmeChat', style: AppText.heading),
+              const SizedBox(height: 6),
+              Text('Secure messaging', style: AppText.bodyGrey),
+              const SizedBox(height: 48),
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.accent,
+                ),
+              ),
+            ],
           ),
         ),
       ),

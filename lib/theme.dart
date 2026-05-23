@@ -12,9 +12,10 @@ class AppColors {
   static const Color border      = Color(0xFFE0E0E0);
   static const Color accent      = Color(0xFF2B7A0B);
   static const Color accentLight = Color(0xFFEBF5E6);
-  static const Color sentMsg     = Color(0xFFEBF5E6);
+  static const Color sentMsg     = Color(0xFF3797F0); // Instagram blue
   static const Color recvMsg     = Color(0xFFFFFFFF);
   static const Color textDark    = Color(0xFF1C1C1C);
+  static const Color textWhite   = Color(0xFFFFFFFF);
   static const Color textGrey    = Color(0xFF666666);
   static const Color textHint    = Color(0xFFAAAAAA);
   static const Color danger      = Color(0xFFD32F2F);
@@ -157,29 +158,23 @@ class AppDeco {
     borderRadius: BorderRadius.circular(6),
   );
 
-  /// Sent message bubble
+  /// Sent message bubble — Instagram blue, compact
   static BoxDecoration sentBubble = BoxDecoration(
     color: AppColors.sentMsg,
-    borderRadius: BorderRadius.circular(8),
-    boxShadow: const [
-      BoxShadow(
-        color: AppColors.shadow,
-        blurRadius: 2,
-        offset: Offset(0, 1),
-      ),
-    ],
+    borderRadius: BorderRadius.circular(14),
+    border: Border.all(color: Color(0xFF2E7DC6), width: 0.5),
   );
 
-  /// Received message bubble
+  /// Received message bubble — white, subtle border
   static BoxDecoration recvBubble = BoxDecoration(
     color: AppColors.recvMsg,
-    border: Border.all(color: AppColors.border),
-    borderRadius: BorderRadius.circular(8),
+    border: Border.all(color: AppColors.border, width: 0.5),
+    borderRadius: BorderRadius.circular(14),
     boxShadow: const [
       BoxShadow(
         color: AppColors.shadow,
-        blurRadius: 2,
-        offset: Offset(0, 1),
+        blurRadius: 1.5,
+        offset: Offset(0, 0.5),
       ),
     ],
   );

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart' as emoji_picker;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -46,9 +47,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
   final _recorder  = AudioRecorder();
 
   bool _isRecording  = false;
+  bool _isPaused     = false;
   bool _hasMicPerm   = false;
+  bool _showEmoji    = false;
   Timer? _recordTimer;
   int   _recordSecs  = 0;
+  int   _pauseOffset = 0;
   String? _recordPath;
 
   @override
@@ -124,20 +128,20 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
     try {
       final dir  = await getTemporaryDirectory();
-      _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
 
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
+          encoder: AudioEncoder.wav,
         ),
         path: _recordPath!,
       );
 
       setState(() {
         _isRecording = true;
+        _isPaused = false;
         _recordSecs  = 0;
+        _pauseOffset = 0;
       });
 
       _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -152,13 +156,26 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
   }
 
+  Future<void> _pauseResume() async {
+    if (_isPaused) {
+      await _recorder.resume();
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _recordSecs++);
+      });
+    } else {
+      await _recorder.pause();
+      _recordTimer?.cancel();
+    }
+    if (mounted) setState(() => _isPaused = !_isPaused);
+  }
+
   Future<void> _stopAndSend() async {
     _recordTimer?.cancel();
     if (!_isRecording) return;
 
     try {
       final path = await _recorder.stop();
-      setState(() => _isRecording = false);
+      setState(() { _isRecording = false; _isPaused = false; });
 
       if (path == null) return;
       final file  = File(path);
@@ -166,22 +183,41 @@ class _ChatInputBarState extends State<ChatInputBar> {
       await file.delete().catchError((_) => file as FileSystemEntity);
 
       if (bytes.isEmpty) return;
-      widget.onSendVoice(bytes, _recordSecs * 1000, 'm4a');
+      widget.onSendVoice(bytes, _recordSecs * 1000, 'wav');
     } catch (e) {
-      setState(() => _isRecording = false);
+      setState(() { _isRecording = false; _isPaused = false; });
     }
   }
 
   Future<void> _cancelRecording() async {
     _recordTimer?.cancel();
     await _recorder.cancel();
-    if (mounted) setState(() { _isRecording = false; _recordSecs = 0; });
+    if (mounted) setState(() { _isRecording = false; _isPaused = false; _recordSecs = 0; });
+  }
+
+  void _onEmojiSelected(emoji_picker.Emoji emoji) {
+    final pos = _textCtrl.selection.baseOffset;
+    final text = _textCtrl.text;
+    if (pos < 0 || pos > text.length) {
+      _textCtrl.text = text + emoji.emoji;
+    } else {
+      _textCtrl.text = text.substring(0, pos) + emoji.emoji + text.substring(pos);
+      _textCtrl.selection = TextSelection.collapsed(offset: pos + emoji.emoji.length);
+    }
   }
 
   String _formatSecs(int s) {
     final m = (s ~/ 60).toString().padLeft(2, '0');
     final sec = (s % 60).toString().padLeft(2, '0');
     return '$m:$sec';
+  }
+
+  void _toggleEmoji() {
+    setState(() {
+      _showEmoji = !_showEmoji;
+      if (_showEmoji) _focusNode.unfocus();
+      else _focusNode.requestFocus();
+    });
   }
 
   @override
@@ -193,8 +229,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
         if (_isRecording)
           _RecordingBar(
             seconds: _recordSecs,
+            isPaused: _isPaused,
             onCancel: _cancelRecording,
             onSend: _stopAndSend,
+            onPauseResume: _pauseResume,
             formatSecs: _formatSecs,
           )
         else
@@ -207,7 +245,21 @@ class _ChatInputBarState extends State<ChatInputBar> {
             onAttach: _attachFile,
             onSend: _sendText,
             onStartRecording: _startRecording,
+            onToggleEmoji: _toggleEmoji,
             enterToSend: widget.enterToSend,
+          ),
+        if (_showEmoji)
+          SizedBox(
+            height: 250,
+            child: emoji_picker.EmojiPicker(
+              onEmojiSelected: (_, emoji) => _onEmojiSelected(emoji),
+              config: emoji_picker.Config(
+                emojiViewConfig: emoji_picker.EmojiViewConfig(),
+                categoryViewConfig: emoji_picker.CategoryViewConfig(),
+                skinToneConfig: emoji_picker.SkinToneConfig(),
+                bottomActionBarConfig: const emoji_picker.BottomActionBarConfig(),
+              ),
+            ),
           ),
       ],
     );
@@ -225,6 +277,7 @@ class _NormalBar extends StatelessWidget {
   final VoidCallback onAttach;
   final VoidCallback onSend;
   final VoidCallback onStartRecording;
+  final VoidCallback onToggleEmoji;
   final bool enterToSend;
 
   const _NormalBar({
@@ -236,6 +289,7 @@ class _NormalBar extends StatelessWidget {
     required this.onAttach,
     required this.onSend,
     required this.onStartRecording,
+    required this.onToggleEmoji,
     required this.enterToSend,
   });
 
@@ -300,13 +354,13 @@ class _NormalBar extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // Emoji button (placeholder — wiring emoji picker adds complexity)
+              // Emoji button
               Tooltip(
                 message: 'Emoji',
                 child: IconButton(
                   icon: const Icon(Icons.emoji_emotions_outlined),
                   color: AppColors.textGrey,
-                  onPressed: () {},
+                  onPressed: onToggleEmoji,
                 ),
               ),
 
@@ -381,10 +435,12 @@ class _NormalBar extends StatelessWidget {
                 )
               else
                 Tooltip(
-                  message: 'Voice note',
+                  message: 'Hold to record, slide up to cancel',
                   child: GestureDetector(
                     onLongPressStart: (_) => onStartRecording(),
-                    onLongPressEnd: (_) {},
+                    onLongPressEnd: (_) {
+                      // Release to stop recording (send)
+                    },
                     child: IconButton(
                       icon: const Icon(Icons.mic_outlined),
                       color: AppColors.textGrey,
@@ -404,14 +460,18 @@ class _NormalBar extends StatelessWidget {
 
 class _RecordingBar extends StatelessWidget {
   final int seconds;
+  final bool isPaused;
   final VoidCallback onCancel;
   final VoidCallback onSend;
+  final VoidCallback onPauseResume;
   final String Function(int) formatSecs;
 
   const _RecordingBar({
     required this.seconds,
+    required this.isPaused,
     required this.onCancel,
     required this.onSend,
+    required this.onPauseResume,
     required this.formatSecs,
   });
 
@@ -423,24 +483,40 @@ class _RecordingBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          // Red pulsing dot
-          _PulsingDot(),
+          // Cancel (trash bin)
+          Tooltip(
+            message: 'Delete recording',
+            child: IconButton(
+              icon: const Icon(Icons.delete_outline, size: 22, color: AppColors.danger),
+              onPressed: onCancel,
+            ),
+          ),
+          const SizedBox(width: 4),
+          // Pause / Resume
+          if (!isPaused) _PulsingDot() else const SizedBox(width: 10),
           const SizedBox(width: 10),
           Text(
-            'Recording... ${formatSecs(seconds)}',
+            isPaused ? 'Paused ${formatSecs(seconds)}' : 'Recording... ${formatSecs(seconds)}',
             style: AppText.body.copyWith(color: AppColors.danger),
           ),
           const Spacer(),
-          // Cancel
-          TextButton.icon(
-            onPressed: onCancel,
-            icon: const Icon(Icons.close, size: 16, color: AppColors.danger),
-            label: const Text('Cancel',
-                style: TextStyle(
-                    fontFamily: 'Segoe UI',
-                    fontSize: 13,
-                    color: AppColors.danger)),
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+          // Pause / Resume button
+          InkWell(
+            onTap: onPauseResume,
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: isPaused ? AppColors.accent : AppColors.border,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                color: isPaused ? AppColors.white : AppColors.textDark,
+                size: 20,
+              ),
+            ),
           ),
           const SizedBox(width: 8),
           // Send recording

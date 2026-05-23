@@ -195,6 +195,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           onSelect: (s) => setState(() => _selectedStatus = s),
           onCreateStatus: () => context.push('/create-status'),
           me: _me,
+          onMenuTap: () => _showStatusMenu(context),
         );
       case 3:
         return _SettingsNavPanel(
@@ -267,6 +268,205 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _loadChats();
         },
       ),
+    );
+  }
+
+  void _showStatusMenu(BuildContext ctx) {
+    showMenu(
+      context: ctx,
+      position: RelativeRect.fromLTRB(
+        MediaQuery.of(ctx).size.width - 260, AppSizes.headerHeight,
+        MediaQuery.of(ctx).size.width - 60, AppSizes.headerHeight + 50,
+      ),
+      items: [
+        PopupMenuItem<void>(
+          onTap: () => _showStatusPrivacy(ctx),
+          child: const _MenuRow(Icons.visibility, 'Status privacy'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showStatusPrivacy(BuildContext ctx) async {
+    try {
+      final svc = ref.read(chatServiceProvider);
+      final allowedIds = await svc.getStatusPrivacy();
+      final allowedSet = allowedIds.toSet();
+      final allChats = await svc.fetchChats();
+      if (!mounted) return;
+      final result = await showDialog<Set<String>>(
+        context: ctx,
+        builder: (_) => _StatusPrivacyDialog(
+          chats: allChats,
+          initialSelected: allowedSet,
+          myId: ref.read(currentUserIdProvider),
+        ),
+      );
+      if (result != null) {
+        await svc.setStatusPrivacy(result.toList());
+        if (mounted) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('Status privacy updated')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('Failed: $e')),
+        );
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// STATUS PRIVACY DIALOG
+// ─────────────────────────────────────────────────────
+class _StatusPrivacyDialog extends StatefulWidget {
+  final List<ChatModel> chats;
+  final Set<String> initialSelected;
+  final String myId;
+  const _StatusPrivacyDialog({
+    required this.chats,
+    required this.initialSelected,
+    required this.myId,
+  });
+
+  @override
+  State<_StatusPrivacyDialog> createState() => _StatusPrivacyDialogState();
+}
+
+class _StatusPrivacyDialogState extends State<_StatusPrivacyDialog> {
+  late Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = Set.from(widget.initialSelected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Row(
+                children: [
+                  Text('Status Privacy', style: AppText.title),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Text(
+                'Select contacts who can see your status updates.\nLeave empty for everyone.',
+                style: AppText.bodyGrey,
+              ),
+            ),
+            const Divider(height: 1),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 400),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: widget.chats.length,
+                itemBuilder: (_, i) {
+                  final chat = widget.chats[i];
+                  final other = chat.otherUser;
+                  if (other == null || other.id == widget.myId) return const SizedBox.shrink();
+                  final sel = _selected.contains(other.id);
+                  return InkWell(
+                    onTap: () {
+                      setState(() {
+                        if (sel) {
+                          _selected.remove(other.id);
+                        } else {
+                          _selected.add(other.id);
+                        }
+                      });
+                    },
+                    child: Container(
+                      height: 52,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          UserAvatar(
+                            imageUrl: other.avatarUrl,
+                            name: other.name,
+                            size: 36,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(other.name, style: AppText.body),
+                          ),
+                          Icon(
+                            sel
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            color: sel
+                                ? AppColors.accent
+                                : AppColors.textHint,
+                            size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(_selected),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Menu row helper ──────────────────────────────────
+class _MenuRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? color;
+  const _MenuRow(this.icon, this.label, {this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.textGrey;
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: c),
+        const SizedBox(width: 12),
+        Text(label, style: AppText.body.copyWith(color: c)),
+      ],
     );
   }
 }
@@ -743,6 +943,7 @@ class _StatusListPanel extends StatelessWidget {
   final ValueChanged<StatusModel> onSelect;
   final VoidCallback onCreateStatus;
   final UserModel? me;
+  final VoidCallback onMenuTap;
 
   const _StatusListPanel({
     required this.statuses,
@@ -751,6 +952,7 @@ class _StatusListPanel extends StatelessWidget {
     required this.onSelect,
     required this.onCreateStatus,
     required this.me,
+    required this.onMenuTap,
   });
 
   @override
@@ -772,6 +974,14 @@ class _StatusListPanel extends StatelessWidget {
                     child: IconButton(
                       icon: const Icon(Icons.add_circle_outline, size: 20),
                       onPressed: onCreateStatus,
+                      color: AppColors.textGrey,
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'More options',
+                    child: IconButton(
+                      icon: const Icon(Icons.more_vert, size: 20),
+                      onPressed: onMenuTap,
                       color: AppColors.textGrey,
                     ),
                   ),

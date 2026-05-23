@@ -142,7 +142,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           .from('voice_notes')
           .uploadBinary(path, bytes,
               fileOptions:
-                  const FileOptions(contentType: 'audio/m4a'));
+                  const FileOptions(contentType: 'audio/wav'));
       final url = db.storage.from('voice_notes').getPublicUrl(path);
       await ref.read(groupServiceProvider).sendGroupMessage(
             groupId: widget.groupId,
@@ -150,6 +150,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             type: MessageType.audio,
             mediaUrl: url,
             fileName: 'voice_$ts.$ext',
+            duration: (durationMs / 1000).round(),
           );
       _scrollToBottom();
     } catch (e) {
@@ -158,6 +159,69 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             .showSnackBar(SnackBar(content: Text('Send failed: $e')));
       }
     }
+  }
+
+  Future<void> _forwardMessage(MessageModel msg) async {
+    final users = await ref.read(chatServiceProvider).getAllUsers();
+    if (!mounted) return;
+    final selected = await showDialog<UserModel>(
+      context: context,
+      builder: (_) => _ForwardDialog(users: users),
+    );
+    if (selected == null || !mounted) return;
+    try {
+      final targetChatId = await ref.read(chatServiceProvider).getOrCreateChat(selected.id);
+      await ref.read(chatServiceProvider).forwardMessage(
+        source: msg,
+        targetChatId: targetChatId,
+        targetReceiverId: selected.id,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Forwarded to ${selected.name}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Forward failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _startGroupVideoCall() {
+    if (_members.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No members to call')),
+      );
+      return;
+    }
+    final me = ref.read(currentUserIdProvider);
+    final others = _members.where((m) => m.id != me).toList();
+    if (others.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No other members to call')),
+      );
+      return;
+    }
+    final target = others.first;
+    ref.read(webrtcServiceProvider).initiateCall(
+      target.id,
+      isVideo: true,
+    ).then((callId) {
+      if (mounted) {
+        context.push('/video-call/$callId',
+          extra: {'isCaller': true, 'user': target, 'sdpOffer': ''},
+        );
+      }
+    }).catchError((e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Video call failed: $e')),
+        );
+      }
+    });
   }
 
   Future<void> _sendFile(
@@ -212,6 +276,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                       ? context.pop()
                       : context.go('/home'),
                   onInfo: () => setState(() => _showInfo = !_showInfo),
+                  onVideoCall: _startGroupVideoCall,
                 ),
                 const Divider(height: 1),
 
@@ -236,7 +301,8 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
                       final msgs = rows
                           .map((r) => MessageModel.fromMap(r))
-                          .toList();
+                          .toList()
+                        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
                       _scrollToBottom();
 
@@ -275,7 +341,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                                         );
                                       }
                                     : null,
-                                onForward: () {},
+                                onForward: () => _forwardMessage(msg),
                               ),
                             ],
                           );
@@ -332,6 +398,7 @@ class _GroupChatHeader extends StatelessWidget {
   final bool loading;
   final VoidCallback onBack;
   final VoidCallback onInfo;
+  final VoidCallback? onVideoCall;
 
   const _GroupChatHeader({
     required this.group,
@@ -339,6 +406,7 @@ class _GroupChatHeader extends StatelessWidget {
     required this.loading,
     required this.onBack,
     required this.onInfo,
+    this.onVideoCall,
   });
 
   @override
@@ -385,7 +453,7 @@ class _GroupChatHeader extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.videocam_outlined, size: 20),
             tooltip: 'Group Video Call',
-            onPressed: () {},
+            onPressed: onVideoCall,
           ),
           IconButton(
             icon: const Icon(Icons.info_outlined, size: 20),
@@ -517,6 +585,47 @@ class _GroupInfoPanel extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Forward dialog ───────────────────────────────────
+
+class _ForwardDialog extends StatelessWidget {
+  final List<UserModel> users;
+  const _ForwardDialog({required this.users});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Text('Forward to...', style: AppText.title),
+          ),
+          const Divider(height: 1),
+          SizedBox(
+            height: 300,
+            child: users.isEmpty
+                ? const Center(child: Text('No contacts', style: TextStyle(color: AppColors.textGrey)))
+                : ListView.builder(
+                    itemCount: users.length,
+                    itemBuilder: (_, i) {
+                      final u = users[i];
+                      return ListTile(
+                        leading: UserAvatar(imageUrl: u.avatarUrl, name: u.name, size: 36),
+                        title: Text(u.name, style: AppText.body),
+                        subtitle: Text(u.email, style: AppText.caption),
+                        onTap: () => Navigator.pop(context, u),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

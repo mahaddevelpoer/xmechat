@@ -16,6 +16,10 @@ import '../screens/chat/private_chat_screen.dart';
 import '../screens/chat/group_chat_screen.dart';
 import '../screens/calls/voice_call_screen.dart';
 import '../screens/calls/video_call_screen.dart';
+import '../screens/contacts/contacts_screen.dart';
+import '../screens/groups/create_group_screen.dart';
+import '../screens/status/create_status_screen.dart';
+import '../screens/broadcast/broadcast_screen.dart';
 import '../widgets/common/user_avatar.dart';
 
 // ─────────────────────────────────────────────────────
@@ -181,38 +185,22 @@ final List<RouteBase> _routes = [
     },
   ),
 
-  // ── Stub screens ──────────────────────────────────
+  // ── Real screens ──────────────────────────────────
   GoRoute(
     path: '/create-group',
-    pageBuilder: (_, state) => _fadePage(state, const _StubScreen(
-      icon: Icons.group_add_outlined,
-      title: 'Create Group',
-      subtitle: 'Coming soon',
-    )),
+    pageBuilder: (_, state) => _fadePage(state, const CreateGroupScreen()),
   ),
   GoRoute(
     path: '/create-status',
-    pageBuilder: (_, state) => _fadePage(state, const _StubScreen(
-      icon: Icons.add_circle_outline,
-      title: 'Add Status',
-      subtitle: 'Coming soon',
-    )),
+    pageBuilder: (_, state) => _fadePage(state, const CreateStatusScreen()),
   ),
   GoRoute(
     path: '/broadcast',
-    pageBuilder: (_, state) => _fadePage(state, const _StubScreen(
-      icon: Icons.campaign_outlined,
-      title: 'Broadcast',
-      subtitle: 'Coming soon',
-    )),
+    pageBuilder: (_, state) => _fadePage(state, const BroadcastScreen()),
   ),
   GoRoute(
     path: '/contacts',
-    pageBuilder: (_, state) => _fadePage(state, const _StubScreen(
-      icon: Icons.contacts_outlined,
-      title: 'Contacts',
-      subtitle: 'Coming soon',
-    )),
+    pageBuilder: (_, state) => _fadePage(state, const ContactsScreen()),
   ),
 
   // ── Contact profile ───────────────────────────────
@@ -231,48 +219,6 @@ final List<RouteBase> _routes = [
     },
   ),
 ];
-
-// ─────────────────────────────────────────────────────
-// Stub screen
-// ─────────────────────────────────────────────────────
-class _StubScreen extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  const _StubScreen({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        backgroundColor: AppColors.panel,
-        elevation: 0,
-        title: Text(title, style: AppText.title),
-        leading: BackButton(
-          onPressed: () =>
-              context.canPop() ? context.pop() : context.go('/home'),
-        ),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 52, color: AppColors.border),
-            const SizedBox(height: 12),
-            Text(title, style: AppText.title),
-            const SizedBox(height: 4),
-            Text(subtitle, style: AppText.bodyGrey),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ─────────────────────────────────────────────────────
 // Contact profile screen

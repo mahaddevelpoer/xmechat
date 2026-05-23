@@ -277,6 +277,32 @@ class ChatService {
     return MessageModel.fromMap(data);
   }
 
+  Future<List<MessageModel>> fetchAllStarredMessages() async {
+    final data = await _db
+        .from(SupabaseConstants.starredMessagesTable)
+        .select('message_id, chat_id')
+        .eq('user_id', _uid);
+    if (data.isEmpty) return [];
+    final ids = data.map((d) => d['message_id'] as String).toList();
+    final msgs = await _db
+        .from(SupabaseConstants.messagesTable)
+        .select('*')
+        .inFilter('id', ids)
+        .order('created_at', ascending: false);
+    return msgs.map<MessageModel>((m) => MessageModel.fromMap(m)).toList();
+  }
+
+  Future<void> markAllChatsRead() async {
+    await _db
+        .from(SupabaseConstants.messagesTable)
+        .update({
+          'status': 'read',
+          'seen_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('receiver_id', _uid)
+        .neq('status', 'read');
+  }
+
   Future<void> markAllRead(String chatId) async {
     await _db
         .from(SupabaseConstants.messagesTable)
@@ -523,5 +549,213 @@ class ChatService {
           'last_message_type': type,
         })
         .eq('id', chatId);
+  }
+
+  // ── Mute notifications ────────────────────────────
+  Future<bool> getMuteStatus(String chatId) async {
+    final data = await _db
+        .from('chat_settings')
+        .select('muted')
+        .eq('user_id', _uid)
+        .eq('chat_id', chatId)
+        .maybeSingle();
+    return data?['muted'] == true;
+  }
+
+  Future<void> setMuteStatus(String chatId, bool muted) async {
+    await _db.from('chat_settings').upsert({
+      'user_id': _uid,
+      'chat_id': chatId,
+      'muted': muted,
+    }, onConflict: 'user_id,chat_id');
+  }
+
+  // ── Archive / Pin via chat_settings ──────────────────
+  Future<bool> isChatArchived(String chatId) async {
+    final data = await _db
+        .from('chat_settings')
+        .select('archived')
+        .eq('user_id', _uid)
+        .eq('chat_id', chatId)
+        .maybeSingle();
+    return data?['archived'] == true;
+  }
+
+  Future<void> archiveChat(String chatId, bool archived) async {
+    await _db.from('chat_settings').upsert({
+      'user_id': _uid,
+      'chat_id': chatId,
+      'archived': archived,
+    }, onConflict: 'user_id,chat_id');
+  }
+
+  Future<bool> isChatPinned(String chatId) async {
+    final data = await _db
+        .from('chat_settings')
+        .select('pinned')
+        .eq('user_id', _uid)
+        .eq('chat_id', chatId)
+        .maybeSingle();
+    return data?['pinned'] == true;
+  }
+
+  Future<void> pinChat(String chatId, bool pinned) async {
+    await _db.from('chat_settings').upsert({
+      'user_id': _uid,
+      'chat_id': chatId,
+      'pinned': pinned,
+    }, onConflict: 'user_id,chat_id');
+  }
+
+  // ── Favourite chats ───────────────────────────────
+  Future<bool> isFavourite(String chatId) async {
+    final data = await _db
+        .from('favourite_chats')
+        .select('id')
+        .eq('user_id', _uid)
+        .eq('chat_id', chatId)
+        .maybeSingle();
+    return data != null;
+  }
+
+  Future<void> toggleFavourite(String chatId, bool favourite) async {
+    if (favourite) {
+      await _db.from('favourite_chats').insert({
+        'user_id': _uid,
+        'chat_id': chatId,
+      });
+    } else {
+      await _db
+          .from('favourite_chats')
+          .delete()
+          .eq('user_id', _uid)
+          .eq('chat_id', chatId);
+    }
+  }
+
+  // ── Disappearing messages timer ───────────────────
+  Future<int> getDisappearTimer(String chatId) async {
+    final data = await _db
+        .from(SupabaseConstants.chatsTable)
+        .select('disappear_timer')
+        .eq('id', chatId)
+        .maybeSingle();
+    return data?['disappear_timer'] ?? 0;
+  }
+
+  Future<void> setDisappearTimer(String chatId, int seconds) async {
+    await _db
+        .from(SupabaseConstants.chatsTable)
+        .update({'disappear_timer': seconds})
+        .eq('id', chatId);
+  }
+
+  // ── Report user ───────────────────────────────────
+  Future<void> reportUser(String reportedId, String reason) async {
+    await _db.from('reported_users').insert({
+      'reporter_id': _uid,
+      'reported_user_id': reportedId,
+      'reason': reason,
+    });
+  }
+
+  // ── Schedule call ─────────────────────────────────
+  Future<void> scheduleCall(String receiverId, DateTime scheduledAt, {bool isVideo = false}) async {
+    await _db.from('scheduled_calls').insert({
+      'caller_id': _uid,
+      'receiver_id': receiverId,
+      'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+      'type': isVideo ? 'video' : 'voice',
+    });
+  }
+
+  // ── Mark chat as unread ───────────────────────────
+  Future<void> markAsUnread(String chatId) async {
+    await _db.from('unread_markers').upsert({
+      'user_id': _uid,
+      'chat_id': chatId,
+      'marked_at': DateTime.now().toUtc().toIso8601String(),
+    }, onConflict: 'user_id,chat_id');
+  }
+
+  Future<void> clearUnreadMark(String chatId) async {
+    await _db
+        .from('unread_markers')
+        .delete()
+        .eq('user_id', _uid)
+        .eq('chat_id', chatId);
+  }
+
+  // ── Delete entire chat ────────────────────────────
+  Future<void> deleteChat(String chatId) async {
+    await _db
+        .from(SupabaseConstants.messagesTable)
+        .update({'deleted_for_sender': true})
+        .eq('chat_id', chatId)
+        .eq('sender_id', _uid);
+    await _db
+        .from(SupabaseConstants.messagesTable)
+        .update({'deleted_for_receiver': true})
+        .eq('chat_id', chatId)
+        .eq('receiver_id', _uid);
+  }
+
+  // ── Search messages in chat ───────────────────────
+  Future<List<MessageModel>> searchMessages(String chatId, String query) async {
+    final data = await _db
+        .from(SupabaseConstants.messagesTable)
+        .select()
+        .eq('chat_id', chatId)
+        .ilike('text', '%$query%')
+        .eq('deleted_for_everyone', false)
+        .order('created_at', ascending: false)
+        .limit(50);
+    return data.map<MessageModel>((m) => MessageModel.fromMap(m)).toList();
+  }
+
+  // ── Status privacy ────────────────────────────────
+  Future<List<String>> getStatusPrivacy() async {
+    final data = await _db
+        .from('status_privacy')
+        .select('allowed_user_id')
+        .eq('user_id', _uid);
+    return data.map<String>((r) => r['allowed_user_id'] as String).toList();
+  }
+
+  Future<void> setStatusPrivacy(List<String> allowedUserIds) async {
+    // Delete existing
+    await _db.from('status_privacy').delete().eq('user_id', _uid);
+    // Insert new
+    if (allowedUserIds.isNotEmpty) {
+      await _db.from('status_privacy').insert(
+        allowedUserIds.map((id) => {
+          'user_id': _uid,
+          'allowed_user_id': id,
+        }).toList(),
+      );
+    }
+  }
+
+  // ── Get call link for chat ────────────────────────
+  Future<String> generateCallLink(String receiverId, {bool isVideo = false}) async {
+    final callId = await initiateCall(receiverId, isVideo: isVideo);
+    return isVideo
+        ? 'https://xmechat.app/call/video/$callId'
+        : 'https://xmechat.app/call/voice/$callId';
+  }
+
+  // ── Initiate call (reuse from webrtc service directly) ──
+  Future<String> initiateCall(String receiverId, {bool isVideo = false}) async {
+    final callData = await _db
+        .from(SupabaseConstants.callsTable)
+        .insert({
+          'caller_id': _uid,
+          'receiver_id': receiverId,
+          'type': isVideo ? 'video' : 'voice',
+          'status': 'ringing',
+        })
+        .select('id')
+        .single();
+    return callData['id'] as String;
   }
 }

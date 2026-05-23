@@ -42,126 +42,121 @@ class MessageBubble extends StatelessWidget {
       return _DeletedBubble(isSent: isSent);
     }
 
-    return AnimatedSlide(
-      offset: Offset.zero,
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOut,
-      child: Align(
-        alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Avatar for received messages
-            if (!isSent) ...[
-              Padding(
-                padding: const EdgeInsets.only(right: 6, bottom: 2),
-                child: UserAvatar(
-                  imageUrl: senderAvatarUrl,
-                  name: senderName ?? '?',
-                  size: 28,
-                ),
-              ),
-            ],
+    final textColor = isSent ? AppColors.textWhite : AppColors.textDark;
+    final captionColor = isSent ? Colors.white70 : AppColors.textHint;
 
-            // The bubble itself
-            GestureDetector(
-              onSecondaryTapDown: (d) =>
-                  _showContextMenu(context, d.globalPosition),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.65,
-                ),
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 2),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  decoration:
-                      isSent ? AppDeco.sentBubble : AppDeco.recvBubble,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Sender name (group chats)
-                      if (showSenderName && senderName != null && !isSent)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            senderName!,
-                            style: AppText.caption.copyWith(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-
-                      // Forwarded label
-                      if (message.isForwarded)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.forward,
-                                  size: 11, color: AppColors.textHint),
-                              const SizedBox(width: 3),
-                              Text('Forwarded',
-                                  style: AppText.caption.copyWith(
-                                      fontStyle: FontStyle.italic)),
-                            ],
-                          ),
-                        ),
-
-                      // Reply preview inside bubble
-                      if (message.replyPreview.isNotEmpty)
-                        InlineBubbleReply(
-                          previewText: message.replyPreview,
-                          isSent: isSent,
-                        ),
-
-                      // Message content by type
-                      _buildContent(context),
-
-                      // Timestamp + status row
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (message.isStarred)
-                            const Padding(
-                              padding: EdgeInsets.only(right: 4),
-                              child: Icon(Icons.star,
-                                  size: 11, color: AppColors.accent),
-                            ),
-                          Text(
-                            DateFormat('h:mm a').format(message.createdAt),
-                            style: AppText.timestamp,
-                          ),
-                          if (isSent) ...[
-                            const SizedBox(width: 4),
-                            _TickIcon(status: message.status),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+    return Align(
+      alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Avatar for received messages
+          if (!isSent) ...[
+            Padding(
+              padding: const EdgeInsets.only(right: 6, bottom: 2),
+              child: UserAvatar(
+                imageUrl: senderAvatarUrl,
+                name: senderName ?? '?',
+                size: 28,
               ),
             ),
-
-            // Spacer for sent messages (no avatar)
-            if (isSent) const SizedBox(width: 34),
           ],
-        ),
+
+          // The bubble itself
+          GestureDetector(
+            onSecondaryTapDown: (d) =>
+                _showContextMenu(context, d.globalPosition),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 1.5),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 5),
+              decoration: isSent ? AppDeco.sentBubble : AppDeco.recvBubble,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Sender name (group chats)
+                  if (showSenderName && senderName != null && !isSent)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        senderName!,
+                        style: AppText.caption.copyWith(
+                          color: AppColors.accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+
+                  // Forwarded label
+                  if (message.isForwarded)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.forward,
+                              size: 11, color: captionColor),
+                          const SizedBox(width: 3),
+                          Text('Forwarded',
+                              style: AppText.caption.copyWith(
+                                  color: captionColor,
+                                  fontStyle: FontStyle.italic)),
+                        ],
+                      ),
+                    ),
+
+                  // Reply preview inside bubble
+                  if (message.replyPreview.isNotEmpty)
+                    InlineBubbleReply(
+                      previewText: message.replyPreview,
+                      isSent: isSent,
+                    ),
+
+                  // Message content by type
+                  _buildContent(context, textColor, captionColor),
+
+                  // Timestamp + status row
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (message.isStarred)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 3),
+                            child: Icon(Icons.star,
+                                size: 10, color: captionColor),
+                          ),
+                        Text(
+                          DateFormat('h:mm a').format(message.createdAt),
+                          style: AppText.timestamp.copyWith(color: captionColor),
+                        ),
+                        if (isSent) ...[
+                          const SizedBox(width: 3),
+                          _TickIcon(status: message.status, isSent: isSent),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Spacer for sent messages (no avatar)
+          if (isSent) const SizedBox(width: 34),
+        ],
       ),
     );
   }
 
-  Widget _buildContent(BuildContext context) {
+  Widget _buildContent(BuildContext context, Color textColor, Color captionColor) {
     switch (message.type) {
       case MessageType.text:
-        return Text(message.text, style: AppText.body);
+        return Text(message.text, style: AppText.body.copyWith(color: textColor));
 
       case MessageType.audio:
         return VoiceNotePlayer(
@@ -201,12 +196,15 @@ class MessageBubble extends StatelessWidget {
       case MessageType.deleted:
         return Text(
           'This message was deleted',
-          style: AppText.bodyGrey.copyWith(fontStyle: FontStyle.italic),
+          style: AppText.caption.copyWith(
+            color: captionColor,
+            fontStyle: FontStyle.italic,
+          ),
         );
 
       default:
         return message.text.isNotEmpty
-            ? Text(message.text, style: AppText.body)
+            ? Text(message.text, style: AppText.body.copyWith(color: textColor))
             : const SizedBox.shrink();
     }
   }
@@ -504,26 +502,27 @@ class _DeletedBubble extends StatelessWidget {
 
 class _TickIcon extends StatelessWidget {
   final MessageStatus status;
-  const _TickIcon({required this.status});
+  final bool isSent;
+  const _TickIcon({required this.status, required this.isSent});
 
   @override
   Widget build(BuildContext context) {
+    final baseColor = isSent ? Colors.white70 : AppColors.textHint;
     switch (status) {
       case MessageStatus.sending:
-        return const SizedBox(
+        return SizedBox(
           width: 12,
           height: 12,
           child: CircularProgressIndicator(
-              strokeWidth: 1.5, color: AppColors.textHint),
+              strokeWidth: 1.5, color: baseColor),
         );
       case MessageStatus.sent:
-        return const Icon(Icons.check, size: 13, color: AppColors.textHint);
+        return Icon(Icons.check, size: 13, color: baseColor);
       case MessageStatus.delivered:
-        return const Icon(Icons.done_all, size: 13,
-            color: AppColors.textHint);
+        return Icon(Icons.done_all, size: 13, color: baseColor);
       case MessageStatus.read:
-        return const Icon(Icons.done_all, size: 13,
-            color: AppColors.accent);
+        return Icon(Icons.done_all, size: 13,
+            color: isSent ? AppColors.white : AppColors.accent);
     }
   }
 }

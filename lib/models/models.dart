@@ -427,6 +427,8 @@ class GroupMessageModel {
   final MessageType type;
   final String mediaUrl;
   final String fileName;
+  final int? duration;
+  final int? fileSize;
   final String? replyTo;
   final String replyPreview;
   final String replySenderName;
@@ -447,6 +449,8 @@ class GroupMessageModel {
     this.type = MessageType.text,
     this.mediaUrl = '',
     this.fileName = '',
+    this.duration,
+    this.fileSize,
     this.replyTo,
     this.replyPreview = '',
     this.replySenderName = '',
@@ -468,6 +472,8 @@ class GroupMessageModel {
     type: MessageTypeExt.fromString(map['type'] ?? 'text'),
     mediaUrl: map['media_url'] ?? '',
     fileName: map['file_name'] ?? '',
+    duration: map['duration'],
+    fileSize: map['file_size'],
     replyTo: map['reply_to'],
     replyPreview: map['reply_preview'] ?? '',
     replySenderName: map['reply_sender_name'] ?? '',
@@ -487,6 +493,8 @@ class GroupMessageModel {
     'type': type.value,
     'media_url': mediaUrl,
     'file_name': fileName,
+    'duration': duration,
+    'file_size': fileSize,
     'reply_to': replyTo,
     'reply_preview': replyPreview,
     'reply_sender_name': replySenderName,

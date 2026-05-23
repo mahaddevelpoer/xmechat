@@ -9,6 +9,7 @@ import '../services/encryption_service.dart';
 import '../services/group_service.dart';
 import '../services/status_service.dart';
 import '../services/webrtc_service.dart';
+import '../services/settings_service.dart';
 
 // ── Core Service Providers ────────────────────────
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
@@ -173,4 +174,9 @@ final broadcastListsProvider = FutureProvider.autoDispose<List<BroadcastListMode
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
   final uid = ref.watch(currentUserIdProvider);
   return EncryptionService(uid);
+});
+
+final settingsServiceProvider = Provider<SettingsService>((ref) {
+  final uid = ref.watch(currentUserIdProvider);
+  return SettingsService(uid);
 });

@@ -75,13 +75,15 @@ class GroupService {
   Future<GroupMessageModel> sendGroupMessage({
     required String groupId, required String text,
     MessageType type = MessageType.text, String mediaUrl = '',
-    String fileName = '', String? replyTo, String replyPreview = '',
+    String fileName = '', int? duration, int? fileSize,
+    String? replyTo, String replyPreview = '',
     String replySenderName = '', List<String> mentions = const [],
     bool isForwarded = false,
   }) async {
     final data = await _db.from(SupabaseConstants.groupMessagesTable).insert({
       'group_id': groupId, 'sender_id': _uid, 'text': text,
       'type': type.value, 'media_url': mediaUrl, 'file_name': fileName,
+      'duration': duration, 'file_size': fileSize,
       'reply_to': replyTo, 'reply_preview': replyPreview,
       'reply_sender_name': replySenderName, 'mentions': mentions,
       'is_forwarded': isForwarded,

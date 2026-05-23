@@ -51,20 +51,8 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Install msix tool
-        run: flutter pub global activate msix
-
-      - name: Create MSIX Installer
-        run: flutter pub global run msix:create --release
-
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: windows-app
           path: build/windows/x64/runner/Release/
-
-      - name: Upload MSIX
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-msix
-          path: build/windows/x64/runner/Release/*.msix

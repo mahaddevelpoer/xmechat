@@ -99,10 +99,4 @@ flutter_launcher_icons:
     image_path: "assets/images/app_icon.png"
     icon_size: 48
 
-msix_config:
-  display_name: XmeChat
-  publisher_display_name: XmeChat
-  identity_name: com.xmechat.app
-  msix_version: 2.0.0.0
-  logo_path: assets/images/app_icon.png
-  capabilities: internetClient, microphone, webcam
+

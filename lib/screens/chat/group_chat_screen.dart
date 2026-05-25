@@ -36,6 +36,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   MessageModel? _replyTo;
   bool _showInfo = false;
   bool _enterToSend = false;
+  int _prevMsgCount = 0;
 
   @override
   void initState() {
@@ -304,20 +305,30 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                           .toList()
                         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-                      _scrollToBottom();
+                      final seenIds = <String>{};
+                      final uniqueMsgs = msgs.where((m) {
+                        if (seenIds.contains(m.id)) return false;
+                        seenIds.add(m.id);
+                        return true;
+                      }).toList();
+
+                      if (uniqueMsgs.length > _prevMsgCount) {
+                        _scrollToBottom();
+                      }
+                      _prevMsgCount = uniqueMsgs.length;
 
                       return ListView.builder(
                         controller: _scrollCtrl,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 12),
-                        itemCount: msgs.length,
+                        itemCount: uniqueMsgs.length,
                         itemBuilder: (_, i) {
-                          final msg = msgs[i];
+                          final msg = uniqueMsgs[i];
                           final isSent = msg.senderId == uid;
                           final sender = _memberById(msg.senderId);
                           final showDate = i == 0 ||
                               !_sameDay(
-                                  msgs[i - 1].createdAt, msg.createdAt);
+                                  uniqueMsgs[i - 1].createdAt, msg.createdAt);
 
                           return Column(
                             children: [

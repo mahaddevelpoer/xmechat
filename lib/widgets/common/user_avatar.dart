@@ -106,8 +106,7 @@ class UserAvatar extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         _initials,
-        style: TextStyle(
-          fontFamily: 'Segoe UI',
+        style: AppText.custom(
           fontSize: size * 0.36,
           fontWeight: FontWeight.w600,
           color: AppColors.white,

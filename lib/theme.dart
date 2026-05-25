@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 // ─────────────────────────────────────────────────────
 // COLORS
@@ -12,7 +13,7 @@ class AppColors {
   static const Color border      = Color(0xFFE0E0E0);
   static const Color accent      = Color(0xFF2B7A0B);
   static const Color accentLight = Color(0xFFEBF5E6);
-  static const Color sentMsg     = Color(0xFF3797F0); // Instagram blue
+  static const Color sentMsg     = Color(0xFF3797F0);
   static const Color recvMsg     = Color(0xFFFFFFFF);
   static const Color textDark    = Color(0xFF1C1C1C);
   static const Color textWhite   = Color(0xFFFFFFFF);
@@ -32,91 +33,54 @@ class AppColors {
 }
 
 // ─────────────────────────────────────────────────────
-// TEXT STYLES  (Segoe UI, Windows system font)
+// TEXT STYLES  (Plus Jakarta Sans via Google Fonts)
 // ─────────────────────────────────────────────────────
 class AppText {
   AppText._();
 
-  static const String _font = 'Segoe UI';
+  static TextStyle _font({double? fontSize, FontWeight? fontWeight, Color? color, double? height}) {
+    return GoogleFonts.plusJakartaSans(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      height: height,
+    );
+  }
 
   /// 13px — standard body text
-  static const TextStyle body = TextStyle(
-    fontFamily: _font,
-    fontSize: 13,
-    color: AppColors.textDark,
-    height: 1.4,
-  );
+  static TextStyle get body => _font(fontSize: 13, color: AppColors.textDark, height: 1.4);
 
   /// 13px — grey secondary text
-  static const TextStyle bodyGrey = TextStyle(
-    fontFamily: _font,
-    fontSize: 13,
-    color: AppColors.textGrey,
-    height: 1.4,
-  );
+  static TextStyle get bodyGrey => _font(fontSize: 13, color: AppColors.textGrey, height: 1.4);
 
   /// 13px — hint/placeholder text
-  static const TextStyle hint = TextStyle(
-    fontFamily: _font,
-    fontSize: 13,
-    color: AppColors.textHint,
-  );
+  static TextStyle get hint => _font(fontSize: 13, color: AppColors.textHint);
 
   /// 15px semi-bold — names / chat titles
-  static const TextStyle name = TextStyle(
-    fontFamily: _font,
-    fontSize: 15,
-    fontWeight: FontWeight.w600,
-    color: AppColors.textDark,
-    height: 1.2,
-  );
+  static TextStyle get name => _font(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textDark, height: 1.2);
 
   /// 11px — timestamps, badges
-  static const TextStyle timestamp = TextStyle(
-    fontFamily: _font,
-    fontSize: 11,
-    color: AppColors.textHint,
-    height: 1.2,
-  );
+  static TextStyle get timestamp => _font(fontSize: 11, color: AppColors.textHint, height: 1.2);
 
   /// 11px grey — captions
-  static const TextStyle caption = TextStyle(
-    fontFamily: _font,
-    fontSize: 11,
-    color: AppColors.textGrey,
-  );
+  static TextStyle get caption => _font(fontSize: 11, color: AppColors.textGrey);
 
   /// 16px semi-bold — panel titles, section headers
-  static const TextStyle title = TextStyle(
-    fontFamily: _font,
-    fontSize: 16,
-    fontWeight: FontWeight.w600,
-    color: AppColors.textDark,
-  );
+  static TextStyle get title => _font(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textDark);
 
   /// 20px bold — screen/card headings
-  static const TextStyle heading = TextStyle(
-    fontFamily: _font,
-    fontSize: 20,
-    fontWeight: FontWeight.w700,
-    color: AppColors.textDark,
-  );
+  static TextStyle get heading => _font(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textDark);
 
   /// Button label (white, 14px semi-bold)
-  static const TextStyle button = TextStyle(
-    fontFamily: _font,
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-    color: AppColors.white,
-  );
+  static TextStyle get button => _font(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.white);
 
   /// Accent colored link
-  static const TextStyle link = TextStyle(
-    fontFamily: _font,
-    fontSize: 13,
-    color: AppColors.accent,
-    fontWeight: FontWeight.w500,
-  );
+  static TextStyle get link => _font(fontSize: 13, color: AppColors.accent, fontWeight: FontWeight.w500);
+
+  /// Helper to create custom text styles
+  static TextStyle custom({double? fontSize, FontWeight? fontWeight, Color? color, double? height}) {
+    return _font(fontSize: fontSize, fontWeight: fontWeight, color: color, height: height);
+  }
 }
 
 // ─────────────────────────────────────────────────────
@@ -219,7 +183,7 @@ class AppTheme {
 
   static ThemeData get light => ThemeData(
     useMaterial3: true,
-    fontFamily: 'Segoe UI',
+    fontFamily: GoogleFonts.plusJakartaSans().fontFamily,
     brightness: Brightness.light,
     scaffoldBackgroundColor: AppColors.bg,
     colorScheme: ColorScheme.fromSeed(
@@ -288,8 +252,7 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(6),
         ),
-        textStyle: const TextStyle(
-          fontFamily: 'Segoe UI',
+        textStyle: GoogleFonts.plusJakartaSans(
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
@@ -298,8 +261,7 @@ class AppTheme {
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: AppColors.accent,
-        textStyle: const TextStyle(
-          fontFamily: 'Segoe UI',
+        textStyle: GoogleFonts.plusJakartaSans(
           fontSize: 13,
           fontWeight: FontWeight.w500,
         ),
@@ -321,8 +283,7 @@ class AppTheme {
       foregroundColor: AppColors.textDark,
       elevation: 0,
       scrolledUnderElevation: 0,
-      titleTextStyle: TextStyle(
-        fontFamily: 'Segoe UI',
+      titleTextStyle: GoogleFonts.plusJakartaSans(
         fontSize: 16,
         fontWeight: FontWeight.w600,
         color: AppColors.textDark,

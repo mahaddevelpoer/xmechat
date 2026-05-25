@@ -125,10 +125,10 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen> {
                     controller: _textCtrl,
                     maxLines: 4,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white, fontSize: 20, fontFamily: 'Segoe UI'),
+                    style: AppText.custom(color: Colors.white, fontSize: 20),
                     decoration: const InputDecoration(
                       hintText: 'What\'s on your mind?',
-                      hintStyle: TextStyle(color: Colors.white54, fontFamily: 'Segoe UI'),
+                      hintStyle: AppText.custom(color: Colors.white54),
                       border: InputBorder.none,
                     ),
                   ),

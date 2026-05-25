@@ -126,7 +126,7 @@ class _CreateStatusScreenState extends ConsumerState<CreateStatusScreen> {
                     maxLines: 4,
                     textAlign: TextAlign.center,
                     style: AppText.custom(color: Colors.white, fontSize: 20),
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       hintText: 'What\'s on your mind?',
                       hintStyle: AppText.custom(color: Colors.white54),
                       border: InputBorder.none,

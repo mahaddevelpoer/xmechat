@@ -171,7 +171,7 @@ class IncomingCallScreen extends ConsumerWidget {
                             context.pushReplacement('$route/${call.id}', extra: {
                               'isCaller': false,
                               'user': null,
-                              'sdpOffer': call.sdp,
+                              'sdpOffer': call.sdpOffer,
                             });
                           },
                         ),

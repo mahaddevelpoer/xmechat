@@ -278,7 +278,7 @@ class AppTheme {
       color: AppColors.textGrey,
       size: 20,
     ),
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: AppColors.panel,
       foregroundColor: AppColors.textDark,
       elevation: 0,
@@ -288,7 +288,7 @@ class AppTheme {
         fontWeight: FontWeight.w600,
         color: AppColors.textDark,
       ),
-      iconTheme: IconThemeData(color: AppColors.textGrey, size: 20),
+      iconTheme: const IconThemeData(color: AppColors.textGrey, size: 20),
     ),
     listTileTheme: const ListTileThemeData(
       contentPadding: EdgeInsets.symmetric(horizontal: 16),

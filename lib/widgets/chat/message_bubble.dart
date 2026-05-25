@@ -287,12 +287,12 @@ class _ImageBubble extends StatelessWidget {
           width: 220,
           height: 60,
           color: AppColors.border,
-          child: const Row(
+          child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.broken_image_outlined,
+              const Icon(Icons.broken_image_outlined,
                   size: 20, color: AppColors.textHint),
-              SizedBox(width: 6),
+              const SizedBox(width: 6),
                           Text('Image unavailable',
                                   style: AppText.custom(
                                       fontSize: 12,

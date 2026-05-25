@@ -604,7 +604,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     final result = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Search in chat', style: AppText.title),
+        title: Text('Search in chat', style: AppText.title),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -759,7 +759,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                 },
               ),
               SwitchListTile(
-                title: const Text('Video call', style: AppText.body),
+                title: Text('Video call', style: AppText.body),
                 value: isVideo,
                 onChanged: (v) => setDState(() => isVideo = v),
               ),

@@ -197,7 +197,7 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
             // ── Remote video (full screen) ─────────────
             Positioned.fill(
               child: _ended
-                  ? const Center(
+                  ? Center(
                       child: Text('Call ended',
                               style: AppText.custom(
                                   color: Colors.white54,

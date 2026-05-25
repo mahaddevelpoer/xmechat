@@ -39,6 +39,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
   bool _showProfilePanel = false;
   bool _selectMode = false;
   final Set<String> _selectedMsgIds = {};
+  int _prevMsgCount = 0;
 
   static const double _panelWidth = 360;
 
@@ -396,18 +397,28 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                     .toList()
                   ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-                _scrollToBottom();
+                final seenIds = <String>{};
+                final uniqueMsgs = msgs.where((m) {
+                  if (seenIds.contains(m.id)) return false;
+                  seenIds.add(m.id);
+                  return true;
+                }).toList();
+
+                if (uniqueMsgs.length > _prevMsgCount) {
+                  _scrollToBottom();
+                }
+                _prevMsgCount = uniqueMsgs.length;
 
                 return ListView.builder(
                   controller: _scrollCtrl,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
-                  itemCount: msgs.length,
+                  itemCount: uniqueMsgs.length,
                   itemBuilder: (_, i) {
-                    final msg = msgs[i];
+                    final msg = uniqueMsgs[i];
                     final isSent = msg.senderId == uid;
                     final showDate = i == 0 ||
-                        !_sameDay(msgs[i - 1].createdAt, msg.createdAt);
+                        !_sameDay(uniqueMsgs[i - 1].createdAt, msg.createdAt);
                     final isSelected = _selectedMsgIds.contains(msg.id);
                     return Column(
                       children: [

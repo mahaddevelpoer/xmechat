@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/constants/supabase_constants.dart';
@@ -27,6 +29,7 @@ class WebRTCService {
   Timer? _ringTimeoutTimer;
   bool _remoteDescriptionSet = false;
   bool _connected = false;
+  final List<RTCIceCandidate> _queuedIceCandidates = [];
 
   OnRemoteStream? onRemoteStream;
   OnCallEnded? onCallEnded;
@@ -48,9 +51,10 @@ class WebRTCService {
 
   // ── Init Local Media ──────────────────────────────
   Future<MediaStream> initLocalStream({bool video = true}) async {
+    final isDesktop = !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': true,
-      'video': video ? {'facingMode': 'user'} : false,
+      'video': video ? (isDesktop ? true : {'facingMode': 'user'}) : false,
     });
     onLocalStream?.call(_localStream!);
     return _localStream!;
@@ -72,6 +76,11 @@ class WebRTCService {
     // ICE via Supabase Broadcast (free)
     _peerConnection!.onIceCandidate = (candidate) async {
       if (_currentCallId == null) return;
+      // Queue candidates if remote description is not yet set (lost ICE fix)
+      if (!_remoteDescriptionSet) {
+        _queuedIceCandidates.add(candidate);
+        return;
+      }
       await _sendSignal('ice', {
         'user_id': _uid,
         'candidate': candidate.candidate,
@@ -372,6 +381,16 @@ class WebRTCService {
     try {
       await pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
       _remoteDescriptionSet = true;
+      // Flush queued ICE candidates now that remote description is set
+      for (final candidate in _queuedIceCandidates) {
+        await _sendSignal('ice', {
+          'user_id': _uid,
+          'candidate': candidate.candidate,
+          'sdp_mid': candidate.sdpMid,
+          'sdp_mline_index': candidate.sdpMLineIndex,
+        });
+      }
+      _queuedIceCandidates.clear();
     } catch (_) {
       // Broadcast and DB fallback can both deliver the same answer.
     }
@@ -392,7 +411,14 @@ class WebRTCService {
   }
 
   Future<void> toggleSpeaker(bool enable) async {
-    if (_localStream != null) await Helper.setSpeakerphoneOn(enable);
+    if (_localStream == null) return;
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      try {
+        await Helper.setSpeakerphoneOn(enable);
+      } catch (e) {
+        debugPrint('WebRTC: setSpeakerphoneOn failed: $e');
+      }
+    }
   }
 
   // ── Incoming Calls Stream ─────────────────────────
@@ -449,5 +475,6 @@ class WebRTCService {
     _dataChannel = null;
     _remoteDescriptionSet = false;
     _connected = false;
+    _queuedIceCandidates.clear();
   }
 }

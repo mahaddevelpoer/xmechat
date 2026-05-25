@@ -17,14 +17,21 @@ class CallService {
   RealtimeChannel? _callChannel;
   Timer? _backupTimer;
   String? _activeIncomingCallId;
-  final AudioPlayer _ringtonePlayer = AudioPlayer();
+  AudioPlayer? _ringtonePlayer;
   final Set<String> _processedIds = {};
 
   Future<void> start(String userId) async {
     _processedIds.clear();
+    _ringtonePlayer = AudioPlayer();
     _listenForCalls(userId);
     _startBackupCallPoller(userId);
     debugPrint('CallService: Started for user $userId');
+  }
+
+  Future<void> stopRingtone() async {
+    try {
+      await _ringtonePlayer?.stop();
+    } catch (_) {}
   }
 
   void _listenForCalls(String userId) {
@@ -63,7 +70,7 @@ class CallService {
             final row = payload.newRecord;
             final status = row['status']?.toString() ?? '';
             if (status == 'ended' || status == 'rejected' || status == 'missed') {
-              _ringtonePlayer.stop();
+              _ringtonePlayer?.stop();
             }
           },
         )
@@ -79,7 +86,8 @@ class CallService {
   Future<void> _handleIncomingCall(String myId, Map<String, dynamic> row) async {
     final status = row['status']?.toString() ?? '';
     if (status != 'ringing') return;
-    if (row['caller_id']?.toString() == myId) return; // skip self-calls
+    if (row['caller_id']?.toString() == myId) return;
+    if (row['receiver_id']?.toString() != myId) return;
 
     if (_activeIncomingCallId == row['id']?.toString()) return;
     _activeIncomingCallId = row['id']?.toString();
@@ -118,19 +126,21 @@ class CallService {
   }
 
   Future<void> _playRingtone(SharedPreferences prefs) async {
+    final player = _ringtonePlayer;
+    if (player == null) return;
     try {
-      await _ringtonePlayer.setLoopMode(LoopMode.one);
+      await player.setLoopMode(LoopMode.one);
       final ringtonePath = prefs.getString('ringtone_path');
       if (ringtonePath != null && ringtonePath.isNotEmpty) {
         if (ringtonePath.startsWith('http')) {
-          await _ringtonePlayer.setUrl(ringtonePath);
+          await player.setUrl(ringtonePath);
         } else {
-          await _ringtonePlayer.setFilePath(ringtonePath);
+          await player.setFilePath(ringtonePath);
         }
       } else {
-        await _ringtonePlayer.setUrl('https://actions.google.com/sounds/v1/alarms/phone_alerts_and_rings_01.ogg');
+        await player.setUrl('https://actions.google.com/sounds/v1/alarms/phone_alerts_and_rings_01.ogg');
       }
-      await _ringtonePlayer.play();
+      await player.play();
     } catch (_) {}
   }
 
@@ -163,8 +173,11 @@ class CallService {
   Future<void> stop() async {
     _backupTimer?.cancel();
     _backupTimer = null;
-    _ringtonePlayer.stop();
-    _ringtonePlayer.dispose();
+    try {
+      await _ringtonePlayer?.stop();
+      await _ringtonePlayer?.dispose();
+    } catch (_) {}
+    _ringtonePlayer = null;
     try {
       await _callChannel?.unsubscribe();
     } catch (_) {}

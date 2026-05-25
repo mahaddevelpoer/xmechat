@@ -16,6 +16,7 @@ import '../screens/chat/private_chat_screen.dart';
 import '../screens/chat/group_chat_screen.dart';
 import '../screens/calls/voice_call_screen.dart';
 import '../screens/calls/video_call_screen.dart';
+import '../screens/calls/incoming_call_screen.dart';
 import '../screens/contacts/contacts_screen.dart';
 import '../screens/groups/create_group_screen.dart';
 import '../screens/status/create_status_screen.dart';
@@ -201,6 +202,16 @@ final List<RouteBase> _routes = [
   GoRoute(
     path: '/contacts',
     pageBuilder: (_, state) => _fadePage(state, const ContactsScreen()),
+  ),
+
+  // ── Incoming call ────────────────────────────────────
+  GoRoute(
+    path: '/incoming-call',
+    pageBuilder: (_, state) {
+      final call = state.extra as CallModel?;
+      if (call == null) return _fadePage(state, const SplashScreen());
+      return _fadePage(state, IncomingCallScreen(call: call));
+    },
   ),
 
   // ── Contact profile ───────────────────────────────

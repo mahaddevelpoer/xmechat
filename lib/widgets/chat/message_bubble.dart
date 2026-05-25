@@ -44,6 +44,7 @@ class MessageBubble extends StatelessWidget {
 
     final textColor = isSent ? AppColors.textWhite : AppColors.textDark;
     final captionColor = isSent ? Colors.white70 : AppColors.textHint;
+    final maxWidth = MediaQuery.of(context).size.width * 0.7;
 
     return Align(
       alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
@@ -51,7 +52,6 @@ class MessageBubble extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Avatar for received messages
           if (!isSent) ...[
             Padding(
               padding: const EdgeInsets.only(right: 6, bottom: 2),
@@ -63,90 +63,88 @@ class MessageBubble extends StatelessWidget {
             ),
           ],
 
-          // The bubble itself
           GestureDetector(
             onSecondaryTapDown: (d) =>
                 _showContextMenu(context, d.globalPosition),
-            child: Container(
-              margin: const EdgeInsets.symmetric(vertical: 1.5),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 5),
-              decoration: isSent ? AppDeco.sentBubble : AppDeco.recvBubble,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Sender name (group chats)
-                  if (showSenderName && senderName != null && !isSent)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Text(
-                        senderName!,
-                        style: AppText.caption.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-
-                  // Forwarded label
-                  if (message.isForwarded)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.forward,
-                              size: 11, color: captionColor),
-                          const SizedBox(width: 3),
-                          Text('Forwarded',
-                              style: AppText.caption.copyWith(
-                                  color: captionColor,
-                                  fontStyle: FontStyle.italic)),
-                        ],
-                      ),
-                    ),
-
-                  // Reply preview inside bubble
-                  if (message.replyPreview.isNotEmpty)
-                    InlineBubbleReply(
-                      previewText: message.replyPreview,
-                      isSent: isSent,
-                    ),
-
-                  // Message content by type
-                  _buildContent(context, textColor, captionColor),
-
-                  // Timestamp + status row
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (message.isStarred)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 3),
-                            child: Icon(Icons.star,
-                                size: 10, color: captionColor),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: IntrinsicWidth(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 1.5),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 5),
+                  decoration: isSent ? AppDeco.sentBubble : AppDeco.recvBubble,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showSenderName && senderName != null && !isSent)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            senderName!,
+                            style: AppText.caption.copyWith(
+                              color: AppColors.accent,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        Text(
-                          DateFormat('h:mm a').format(message.createdAt),
-                          style: AppText.timestamp.copyWith(color: captionColor),
                         ),
-                        if (isSent) ...[
-                          const SizedBox(width: 3),
-                          _TickIcon(status: message.status, isSent: isSent),
-                        ],
-                      ],
-                    ),
+
+                      if (message.isForwarded)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.forward,
+                                  size: 11, color: captionColor),
+                              const SizedBox(width: 3),
+                              Text('Forwarded',
+                                  style: AppText.caption.copyWith(
+                                      color: captionColor,
+                                      fontStyle: FontStyle.italic)),
+                            ],
+                          ),
+                        ),
+
+                      if (message.replyPreview.isNotEmpty)
+                        InlineBubbleReply(
+                          previewText: message.replyPreview,
+                          isSent: isSent,
+                        ),
+
+                      _buildContent(context, textColor, captionColor),
+
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            if (message.isStarred)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 3),
+                                child: Icon(Icons.star,
+                                    size: 10, color: captionColor),
+                              ),
+                            Text(
+                              DateFormat('h:mm a').format(message.createdAt),
+                              style: AppText.timestamp.copyWith(color: captionColor),
+                            ),
+                            if (isSent) ...[
+                              const SizedBox(width: 3),
+                              _TickIcon(status: message.status, isSent: isSent),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
 
-          // Spacer for sent messages (no avatar)
           if (isSent) const SizedBox(width: 34),
         ],
       ),
@@ -295,11 +293,10 @@ class _ImageBubble extends StatelessWidget {
               Icon(Icons.broken_image_outlined,
                   size: 20, color: AppColors.textHint),
               SizedBox(width: 6),
-              Text('Image unavailable',
-                  style: TextStyle(
-                      fontFamily: 'Segoe UI',
-                      fontSize: 12,
-                      color: AppColors.textHint)),
+                          Text('Image unavailable',
+                                  style: AppText.custom(
+                                      fontSize: 12,
+                                      color: AppColors.textHint)),
             ],
           ),
         ),

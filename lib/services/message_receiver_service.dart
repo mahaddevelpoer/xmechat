@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:just_audio/just_audio.dart';
 import '../core/constants/supabase_constants.dart';
 import 'xmechat_root.dart';
 import 'windows_notifier.dart';
@@ -19,11 +20,13 @@ class MessageReceiverService {
   bool _running = false;
   final Set<String> _processedIds = {};
   DateTime? _lastPollTime;
+  AudioPlayer? _notificationPlayer;
 
   Future<void> start(String userId) async {
     _running = true;
     _lastPollTime = DateTime.now();
     _processedIds.clear();
+    _notificationPlayer = AudioPlayer();
     _startPrimaryChannel(userId);
     _startBackupPoller(userId);
     _startHealthCheck();
@@ -79,8 +82,10 @@ class MessageReceiverService {
 
   Future<void> _handleNewMessage(String myId, Map<String, dynamic> msg) async {
     try {
+      if (msg['sender_id']?.toString() == myId) return;
       final prefs = await SharedPreferences.getInstance();
       final notify = prefs.getBool('notify_messages') ?? true;
+      final soundEnabled = prefs.getBool('notif_sound') ?? true;
       if (!notify) return;
 
       final senderData = await _supabase
@@ -104,6 +109,15 @@ class MessageReceiverService {
             XmeChatRoot.instance.navigateToChat(chatId);
           },
         );
+      }
+
+      // Play notification sound
+      if (soundEnabled) {
+        try {
+          await _notificationPlayer?.stop();
+          await _notificationPlayer?.setUrl('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+          await _notificationPlayer?.play();
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('MessageReceiverService: Error handling message: $e');
@@ -144,6 +158,10 @@ class MessageReceiverService {
     _backupTimer = null;
     _healthCheckTimer?.cancel();
     _healthCheckTimer = null;
+    try {
+      await _notificationPlayer?.dispose();
+    } catch (_) {}
+    _notificationPlayer = null;
     try {
       await _primaryChannel?.unsubscribe();
     } catch (_) {}

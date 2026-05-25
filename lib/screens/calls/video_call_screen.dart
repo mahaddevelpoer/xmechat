@@ -196,18 +196,17 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
           children: [
             // ── Remote video (full screen) ─────────────
             Positioned.fill(
-              child: _connecting
-                  ? _ConnectingView(
-                      user: widget.remoteUser,
-                      isCaller: widget.isCaller,
-                    )
-                  : _ended
-                      ? const Center(
-                          child: Text('Call ended',
-                              style: TextStyle(
+              child: _ended
+                  ? const Center(
+                      child: Text('Call ended',
+                              style: AppText.custom(
                                   color: Colors.white54,
-                                  fontFamily: 'Segoe UI',
                                   fontSize: 18)))
+                  : _connecting && _remoteRenderer.srcObject == null
+                      ? _ConnectingView(
+                          user: widget.remoteUser,
+                          isCaller: widget.isCaller,
+                        )
                       : RTCVideoView(
                           _remoteRenderer,
                           objectFit: RTCVideoViewObjectFit
@@ -215,7 +214,55 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                         ),
             ),
 
-            // ── Local video (bottom-right pip) ─────────
+            // ── Local video (full-screen during connecting, pip after) ─────────
+            if (_connecting && !_ended && _localRenderer.srcObject != null)
+              Positioned.fill(
+                child: ClipRRect(
+                  child: _cameraOff
+                      ? Container(
+                          color: const Color(0xFF1A2B1A),
+                          child: const Center(
+                            child: Icon(Icons.videocam_off,
+                                color: Colors.white54, size: 48),
+                          ),
+                        )
+                      : RTCVideoView(
+                          _localRenderer,
+                          mirror: true,
+                          objectFit: RTCVideoViewObjectFit
+                              .RTCVideoViewObjectFitCover,
+                        ),
+                ),
+              ),
+
+            // ── Frosted overlay on local preview during connecting ─────────
+            if (_connecting && !_ended)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.3),
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.3),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── Remote connecting overlay ─────────────
+            if (_connecting && !_ended)
+              Positioned.fill(
+                child: _ConnectingView(
+                  user: widget.remoteUser,
+                  isCaller: widget.isCaller,
+                ),
+              ),
+
+            // ── Local video (bottom-right pip) AFTER connecting ─────────
             if (!_connecting && !_ended)
               Positioned(
                 right: 16,
@@ -363,9 +410,8 @@ class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          const Text('End',
-                              style: TextStyle(
-                                  fontFamily: 'Segoe UI',
+                          Text('End',
+                              style: AppText.custom(
                                   fontSize: 11,
                                   color: Colors.white54)),
                         ],
@@ -483,8 +529,7 @@ class _VideoCallBtn extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(label,
-            style: const TextStyle(
-                fontFamily: 'Segoe UI',
+            style: AppText.custom(
                 fontSize: 10,
                 color: Colors.white54)),
       ],

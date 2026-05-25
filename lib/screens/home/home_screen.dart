@@ -74,7 +74,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _loadChats() async {
-    setState(() => _chatsLoading = true);
+    final isInitial = _chats.isEmpty;
+    if (isInitial) setState(() => _chatsLoading = true);
     try {
       final list = await ref.read(chatServiceProvider).fetchChats();
       if (mounted) setState(() { _chats = list; _chatsLoading = false; });
@@ -2785,8 +2786,7 @@ class _IncomingCallOverlay extends ConsumerWidget {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.danger,
                           side: const BorderSide(color: AppColors.danger),
-                          textStyle: const TextStyle(
-                              fontFamily: 'Segoe UI', fontSize: 13),
+                          textStyle: AppText.custom(fontSize: 13),
                         ),
                       ),
                     ),
@@ -2815,8 +2815,7 @@ class _IncomingCallOverlay extends ConsumerWidget {
                         label: const Text('Accept'),
                         style: ElevatedButton.styleFrom(
                           minimumSize: const Size(0, 36),
-                          textStyle: const TextStyle(
-                              fontFamily: 'Segoe UI', fontSize: 13),
+                          textStyle: AppText.custom(fontSize: 13),
                         ),
                       ),
                     ),

@@ -127,8 +127,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
     }
 
     try {
-      final dir  = await getTemporaryDirectory();
-      _recordPath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+      final dir  = await getApplicationDocumentsDirectory();
+      final voiceDir = Directory('${dir.path}/voice_notes');
+      if (!await voiceDir.exists()) await voiceDir.create(recursive: true);
+      _recordPath = '${voiceDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
 
       await _recorder.start(
         const RecordConfig(
@@ -180,9 +182,9 @@ class _ChatInputBarState extends State<ChatInputBar> {
       if (path == null) return;
       final file  = File(path);
       final bytes = await file.readAsBytes();
-      await file.delete().catchError((_) => file as FileSystemEntity);
 
       if (bytes.isEmpty) return;
+      // Keep local file for offline access, send in background
       widget.onSendVoice(bytes, _recordSecs * 1000, 'wav');
     } catch (e) {
       setState(() { _isRecording = false; _isPaused = false; });

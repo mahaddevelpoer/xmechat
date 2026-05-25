@@ -275,6 +275,7 @@ class XmeChatRoot {
 
   Future<void> _onNewMessage(String myId, Map<String, dynamic> msg) async {
     try {
+      if (msg['sender_id']?.toString() == myId) return;
       final prefs = await SharedPreferences.getInstance();
       final notify = prefs.getBool('notify_messages') ?? true;
       if (!notify) return;
@@ -371,6 +372,7 @@ class XmeChatRoot {
   Future<void> _onCallRow(String myId, Map<String, dynamic> row) async {
     final status = row['status']?.toString() ?? '';
     if (status != 'ringing') return;
+    if (row['receiver_id']?.toString() != myId) return;
 
     if (_activeIncomingCallId == row['id']?.toString()) return;
     _activeIncomingCallId = row['id']?.toString();

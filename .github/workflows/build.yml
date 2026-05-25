@@ -3,6 +3,7 @@ name: Flutter Build
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-android:
@@ -17,7 +18,6 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.7'
           channel: 'stable'
 
       - name: Get Dependencies
@@ -39,7 +39,6 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.35.7'
           channel: 'stable'
 
       - name: Enable Windows Desktop

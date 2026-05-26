@@ -30,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _errorMsg = null; });
     try {
       await _auth.signIn(email: _emailCtrl.text.trim(), password: _passCtrl.text);
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
       setState(() { _errorMsg = e is AuthException ? e.message : 'Something went wrong. Try again.'; _loading = false; });
     }

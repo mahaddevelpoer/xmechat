@@ -1,6 +1,7 @@
 import 'dart:typed_data';
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
@@ -33,13 +34,19 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512);
-    if (file != null) {
-      final bytes = await file.readAsBytes();
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result != null && result.files.isNotEmpty) {
+      final file = result.files.first;
+      Uint8List bytes;
+      if (file.bytes != null) {
+        bytes = file.bytes!;
+      } else {
+        final f = io.File(file.path!);
+        bytes = await f.readAsBytes();
+      }
       setState(() {
         _avatarBytes = bytes;
-        _avatarExt = file.path.split('.').last;
+        _avatarExt = file.extension ?? 'jpg';
       });
     }
   }

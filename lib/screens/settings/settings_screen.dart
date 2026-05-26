@@ -321,6 +321,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           label: const Text('Delete Account'),
           style: TextButton.styleFrom(foregroundColor: AppColors.danger),
           onPressed: () async {
+            final nav = Navigator.of(context);
             final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
               title: const Text('Delete Account'),
               content: const Text('This action is irreversible. All your data will be permanently deleted.'),
@@ -330,7 +331,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ));
             if (confirm == true) {
-              final nav = Navigator.of(context);
               await _auth.deleteAccount();
               nav.pushReplacementNamed('/login');
             }

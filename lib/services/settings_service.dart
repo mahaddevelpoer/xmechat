@@ -19,10 +19,15 @@ class SettingsService {
 
   Future<void> save(String key, dynamic value) async {
     final prefs = await SharedPreferences.getInstance();
-    if (value is bool) await prefs.setBool(key, value);
-    else if (value is double) await prefs.setDouble(key, value);
-    else if (value is int) await prefs.setInt(key, value);
-    else if (value is String) await prefs.setString(key, value);
+    if (value is bool) {
+      await prefs.setBool(key, value);
+    } else if (value is double) {
+      await prefs.setDouble(key, value);
+    } else if (value is int) {
+      await prefs.setInt(key, value);
+    } else if (value is String) {
+      await prefs.setString(key, value);
+    }
 
     await _db.from('user_settings').upsert({
       'user_id': _uid,
@@ -35,10 +40,15 @@ class SettingsService {
     for (final entry in settings.entries) {
       final key = entry.key;
       final value = entry.value;
-      if (value is bool) await prefs.setBool(key, value);
-      else if (value is double) await prefs.setDouble(key, value);
-      else if (value is int) await prefs.setInt(key, value);
-      else if (value is String) await prefs.setString(key, value);
+      if (value is bool) {
+        await prefs.setBool(key, value);
+      } else if (value is double) {
+        await prefs.setDouble(key, value);
+      } else if (value is int) {
+        await prefs.setInt(key, value);
+      } else if (value is String) {
+        await prefs.setString(key, value);
+      }
     }
     await _db.from('user_settings').upsert({
       'user_id': _uid,

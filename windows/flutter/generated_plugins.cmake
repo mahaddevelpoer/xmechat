@@ -14,8 +14,10 @@ list(APPEND FLUTTER_PLUGIN_LIST
   local_notifier
   permission_handler_windows
   record_windows
+  screen_retriever
   share_plus
   url_launcher_windows
+  window_manager
   windows_taskbar
 )
 

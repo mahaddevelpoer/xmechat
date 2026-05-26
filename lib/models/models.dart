@@ -55,6 +55,7 @@ class UserModel {
     'is_online': isOnline,
     'push_token': pushToken,
     'is_private': isPrivate,
+    'created_at': createdAt.toUtc().toIso8601String(),
   };
 
   UserModel copyWith({

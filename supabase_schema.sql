@@ -1,564 +1,567 @@
--- ------------------------------------------------------------
---  XMECHAT – Supabase schema (Clean Setup)
---  Run this whole script in the Supabase SQL editor.
--- ------------------------------------------------------------
+-- ============================================================
+-- XmeChat Complete Supabase Schema
+-- Run this in Supabase SQL Editor (Dashboard > SQL Editor)
+-- ============================================================
 
--- Required extensions
-create extension if not exists "uuid-ossp";
+-- 0. Extensions
+create extension if not exists "pgcrypto";
 
--- 1. DROP EXISTING TABLES TO ENSURE A CLEAN STATE
--- (This prevents errors if a table already existed with different columns)
-DROP TABLE IF EXISTS poll_votes CASCADE;
-DROP TABLE IF EXISTS polls CASCADE;
-DROP TABLE IF EXISTS starred_messages CASCADE;
-DROP TABLE IF EXISTS blocked_users CASCADE;
-DROP TABLE IF EXISTS ice_candidates CASCADE;
-DROP TABLE IF EXISTS calls CASCADE;
-DROP TABLE IF EXISTS status_views CASCADE;
-DROP TABLE IF EXISTS statuses CASCADE;
-DROP TABLE IF EXISTS group_message_reactions CASCADE;
-DROP TABLE IF EXISTS group_message_reads CASCADE;
-DROP TABLE IF EXISTS group_messages CASCADE;
-DROP TABLE IF EXISTS group_members CASCADE;
-DROP TABLE IF EXISTS groups CASCADE;
-DROP TABLE IF EXISTS reactions CASCADE;
-DROP TABLE IF EXISTS messages CASCADE;
-DROP TABLE IF EXISTS conversations CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-
--- ----------------------------------------------------------------
--- 2. CREATE TABLES
--- ----------------------------------------------------------------
-
--- Users
-create table users (
-    id            uuid primary key default uuid_generate_v4(),
-    email         varchar not null unique,
-    name          varchar not null,
-    phone_info    varchar,
-    avatar_url    varchar,
-    bio           text,
-    last_seen     timestamp with time zone default now(),
-    is_online     boolean default false,
-    push_token    varchar,
-    is_private    boolean default false,
-    created_at    timestamp with time zone default now()
+-- 1. Users table (syncs with Supabase Auth)
+create table if not exists public.users (
+  id          text primary key,
+  email       text not null,
+  name        text not null default '',
+  phone_info  text not null default '',
+  avatar_url  text not null default '',
+  bio         text not not null default '',
+  last_seen   timestamptz not null default now(),
+  is_online   boolean not null default false,
+  push_token  text not null default '',
+  is_private  boolean not null default false,
+  public_key  text,
+  created_at  timestamptz not null default now()
 );
+alter table public.users enable row level security;
 
-create index idx_users_email on users(email);
-create index idx_users_name on users(name);
+create policy "Users can read all profiles"
+  on public.users for select
+  using (true);
 
--- Conversations (one‑to‑one)
-create table conversations (
-    id                uuid primary key default uuid_generate_v4(),
-    participant_1     uuid references users(id) on delete cascade,
-    participant_2     uuid references users(id) on delete cascade,
-    last_message      text,
-    last_message_at   timestamp with time zone default now(),
-    last_message_type varchar default 'text',
-    created_at        timestamp with time zone default now()
+create policy "Users can insert their own profile"
+  on public.users for insert
+  with check (id = auth.uid()::text);
+
+create policy "Users can update their own profile"
+  on public.users for update
+  using (id = auth.uid()::text);
+
+-- 2. Conversations (1:1 chats)
+create table if not exists public.conversations (
+  id                uuid primary key default gen_random_uuid(),
+  participant_1     text not null references public.users(id) on delete cascade,
+  participant_2     text not null references public.users(id) on delete cascade,
+  last_message      text not null default '',
+  last_message_at   timestamptz not null default now(),
+  last_message_type text not null default 'text',
+  disappear_timer   int not null default 0,
+  created_at        timestamptz not null default now()
 );
+alter table public.conversations enable row level security;
 
-create index idx_conversations_p1 on conversations(participant_1);
-create index idx_conversations_p2 on conversations(participant_2);
+create policy "Participants can read conversation"
+  on public.conversations for select
+  using (participant_1 = auth.uid()::text or participant_2 = auth.uid()::text);
 
--- Messages (private conversations)
-create table messages (
-    id               uuid primary key default uuid_generate_v4(),
-    chat_id          uuid references conversations(id) on delete cascade,
-    sender_id        uuid references users(id) on delete cascade,
-    receiver_id      uuid references users(id) on delete cascade,
-    text             text,
-    type             varchar default 'text',
-    media_url        varchar,
-    file_name        varchar,
-    file_size        bigint default 0,
-    duration         int default 0,
-    reply_to         uuid,
-    reply_preview    text,
-    is_forwarded     boolean default false,
-    is_starred       boolean default false,
-    is_view_once     boolean default false,
-    view_once_opened boolean default false,
-    status           varchar default 'sent',
-    seen_at          timestamp with time zone,
-    delivered_at     timestamp with time zone,
-    latitude         double precision,
-    longitude        double precision,
-    location_name    varchar,
-    contact_name     varchar,
-    contact_phone    varchar,
-    deleted_for_sender    boolean default false,
-    deleted_for_receiver  boolean default false,
-    deleted_for_everyone  boolean default false,
-    created_at       timestamp with time zone default now()
+create policy "Participants can insert"
+  on public.conversations for insert
+  with check (participant_1 = auth.uid()::text or participant_2 = auth.uid()::text);
+
+create policy "Participants can update"
+  on public.conversations for update
+  using (participant_1 = auth.uid()::text or participant_2 = auth.uid()::text);
+
+-- 3. Messages
+create table if not exists public.messages (
+  id                  uuid primary key default gen_random_uuid(),
+  chat_id             uuid references public.conversations(id) on delete cascade,
+  group_id            uuid,
+  sender_id           text not null references public.users(id) on delete cascade,
+  receiver_id         text references public.users(id) on delete cascade,
+  text                text not null default '',
+  type                text not null default 'text',
+  media_url           text not null default '',
+  file_name           text not null default '',
+  file_size           int not null default 0,
+  duration            int not null default 0,
+  reply_to            uuid,
+  reply_preview       text not null default '',
+  is_forwarded        boolean not null default false,
+  is_view_once        boolean not null default false,
+  view_once_opened    boolean not null default false,
+  status              text not null default 'sent',
+  seen_at             timestamptz,
+  delivered_at        timestamptz,
+  latitude            float,
+  longitude           float,
+  location_name       text not null default '',
+  contact_name        text not null default '',
+  contact_phone       text not null default '',
+  deleted_for_sender  boolean not null default false,
+  deleted_for_receiver boolean not null default false,
+  deleted_for_everyone boolean not null default false,
+  created_at          timestamptz not null default now()
 );
+alter table public.messages enable row level security;
 
-create index idx_messages_chat on messages(chat_id);
-create index idx_messages_sender on messages(sender_id);
-create index idx_messages_receiver on messages(receiver_id);
-create index idx_messages_created on messages(created_at);
+create policy "Users can read messages they're involved in"
+  on public.messages for select
+  using (sender_id = auth.uid()::text or receiver_id = auth.uid()::text);
 
--- Reactions
-create table reactions (
-    id         uuid primary key default uuid_generate_v4(),
-    message_id uuid references messages(id) on delete cascade,
-    user_id    uuid references users(id) on delete cascade,
-    emoji      varchar not null,
-    created_at timestamp with time zone default now()
+create policy "Users can insert messages"
+  on public.messages for insert
+  with check (sender_id = auth.uid()::text);
+
+create policy "Users can update their own messages"
+  on public.messages for update
+  using (sender_id = auth.uid()::text or receiver_id = auth.uid()::text);
+
+-- 4. Reactions
+create table if not exists public.reactions (
+  id         uuid primary key default gen_random_uuid(),
+  message_id uuid not null references public.messages(id) on delete cascade,
+  user_id    text not null references public.users(id) on delete cascade,
+  emoji      text not null,
+  created_at timestamptz not null default now(),
+  unique (message_id, user_id)
 );
+alter table public.reactions enable row level security;
 
-create index idx_reactions_message on reactions(message_id);
-create index idx_reactions_user on reactions(user_id);
+create policy "Users can read reactions on their messages"
+  on public.reactions for select
+  using (true);
 
--- Groups
-create table groups (
-    id                uuid primary key default uuid_generate_v4(),
-    name              varchar not null,
-    description       text,
-    icon_url          varchar,
-    created_by        uuid references users(id) on delete cascade,
-    last_message      text,
-    last_message_at   timestamp with time zone default now(),
-    last_message_type varchar default 'text',
-    created_at        timestamp with time zone default now()
+create policy "Users can manage their own reactions"
+  on public.reactions for insert
+  with check (user_id = auth.uid()::text);
+
+create policy "Users can delete their own reactions"
+  on public.reactions for delete
+  using (user_id = auth.uid()::text);
+
+-- 5. Starred Messages
+create table if not exists public.starred_messages (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    text not null references public.users(id) on delete cascade,
+  message_id uuid not null references public.messages(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (user_id, message_id)
 );
+alter table public.starred_messages enable row level security;
 
-create index idx_groups_created_by on groups(created_by);
-create index idx_groups_name on groups(name);
+create policy "Users can manage their own starred messages"
+  on public.starred_messages for all
+  using (user_id = auth.uid()::text);
 
--- Group members
-create table group_members (
-    id        uuid primary key default uuid_generate_v4(),
-    group_id  uuid references groups(id) on delete cascade,
-    user_id   uuid references users(id) on delete cascade,
-    is_admin  boolean default false,
-    joined_at timestamp with time zone default now()
+-- 6. Blocked Users
+create table if not exists public.blocked_users (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        text not null references public.users(id) on delete cascade,
+  blocked_user_id text not null references public.users(id) on delete cascade,
+  created_at     timestamptz not null default now(),
+  unique (user_id, blocked_user_id)
 );
+alter table public.blocked_users enable row level security;
 
-create index idx_group_members_group on group_members(group_id);
-create index idx_group_members_user on group_members(user_id);
+create policy "Users can manage their own block list"
+  on public.blocked_users for all
+  using (user_id = auth.uid()::text);
 
--- Group messages
-create table group_messages (
-    id               uuid primary key default uuid_generate_v4(),
-    group_id         uuid references groups(id) on delete cascade,
-    sender_id        uuid references users(id) on delete cascade,
-    text             text,
-    type             varchar default 'text',
-    media_url        varchar,
-    file_name        varchar,
-    reply_to         uuid,
-    reply_preview    text,
-    reply_sender_name varchar,
-    is_forwarded     boolean default false,
-    is_starred       boolean default false,
-    mentions         jsonb default '[]'::jsonb,
-    deleted_for_everyone boolean default false,
-    created_at       timestamp with time zone default now()
+-- 7. Groups
+create table if not exists public.groups (
+  id                uuid primary key default gen_random_uuid(),
+  name              text not null,
+  description       text not null default '',
+  icon_url          text not null default '',
+  created_by        text not null references public.users(id) on delete cascade,
+  last_message      text not null default '',
+  last_message_at   timestamptz not null default now(),
+  last_message_type text not null default 'text',
+  created_at        timestamptz not null default now()
 );
+alter table public.groups enable row level security;
 
-create index idx_group_msg_group on group_messages(group_id);
-create index idx_group_msg_sender on group_messages(sender_id);
-create index idx_group_msg_created on group_messages(created_at);
+create policy "Members can read groups"
+  on public.groups for select
+  using (exists (
+    select 1 from public.group_members where group_id = id and user_id = auth.uid()::text
+  ));
 
--- Group message reads
-create table group_message_reads (
-    id             uuid primary key default uuid_generate_v4(),
-    message_id     uuid references group_messages(id) on delete cascade,
-    user_id        uuid references users(id) on delete cascade,
-    read_at        timestamp with time zone default now()
+create policy "Creator can manage group"
+  on public.groups for insert
+  with check (created_by = auth.uid()::text);
+
+create policy "Creator can update group"
+  on public.groups for update
+  using (created_by = auth.uid()::text);
+
+-- 8. Group Members
+create table if not exists public.group_members (
+  id        uuid primary key default gen_random_uuid(),
+  group_id  uuid not null references public.groups(id) on delete cascade,
+  user_id   text not null references public.users(id) on delete cascade,
+  is_admin  boolean not null default false,
+  joined_at timestamptz not null default now(),
+  unique (group_id, user_id)
 );
+alter table public.group_members enable row level security;
 
-create index idx_gmr_message on group_message_reads(message_id);
-create index idx_gmr_user on group_message_reads(user_id);
+create policy "Members can read group members"
+  on public.group_members for select
+  using (true);
 
--- Group message reactions
-create table group_message_reactions (
-    id         uuid primary key default uuid_generate_v4(),
-    message_id uuid references group_messages(id) on delete cascade,
-    user_id    uuid references users(id) on delete cascade,
-    emoji      varchar not null,
-    created_at timestamp with time zone default now()
+create policy "Members can insert"
+  on public.group_members for insert
+  with check (user_id = auth.uid()::text);
+
+-- 9. Group Messages
+create table if not exists public.group_messages (
+  id                uuid primary key default gen_random_uuid(),
+  group_id          uuid not null references public.groups(id) on delete cascade,
+  sender_id         text not null references public.users(id) on delete cascade,
+  text              text not null default '',
+  type              text not null default 'text',
+  media_url         text not null default '',
+  file_name         text not null default '',
+  duration          int,
+  file_size         int,
+  reply_to          uuid,
+  reply_preview     text not null default '',
+  reply_sender_name text not null default '',
+  is_forwarded      boolean not null default false,
+  is_starred        boolean not null default false,
+  mentions          text[] not null default '{}',
+  deleted_for_everyone boolean not null default false,
+  created_at        timestamptz not null default now()
 );
+alter table public.group_messages enable row level security;
 
-create index idx_gmr_react_message on group_message_reactions(message_id);
-create index idx_gmr_react_user on group_message_reactions(user_id);
+create policy "Members can read group messages"
+  on public.group_messages for select
+  using (exists (
+    select 1 from public.group_members where group_id = group_messages.group_id and user_id = auth.uid()::text
+  ));
 
--- Statuses
-create table statuses (
-    id          uuid primary key default uuid_generate_v4(),
-    user_id     uuid references users(id) on delete cascade,
-    content_url varchar,
-    text        text,
-    type        varchar default 'text',
-    bg_color    varchar default '#075E54',
-    expires_at  timestamp with time zone,
-    created_at  timestamp with time zone default now()
+create policy "Members can send messages"
+  on public.group_messages for insert
+  with check (exists (
+    select 1 from public.group_members where group_id = group_messages.group_id and user_id = auth.uid()::text
+  ));
+
+-- 10. Group Message Reads
+create table if not exists public.group_message_reads (
+  id         uuid primary key default gen_random_uuid(),
+  message_id uuid not null references public.group_messages(id) on delete cascade,
+  user_id    text not null references public.users(id) on delete cascade,
+  read_at    timestamptz not null default now(),
+  unique (message_id, user_id)
 );
+alter table public.group_message_reads enable row level security;
 
-create index idx_statuses_user on statuses(user_id);
-create index idx_statuses_created on statuses(created_at);
+create policy "Members can read/manage reads"
+  on public.group_message_reads for all
+  using (user_id = auth.uid()::text);
 
--- Status views
-create table status_views (
-    id          uuid primary key default uuid_generate_v4(),
-    status_id   uuid references statuses(id) on delete cascade,
-    viewer_id   uuid references users(id) on delete cascade,
-    viewed_at   timestamp with time zone default now()
+-- 11. Statuses
+create table if not exists public.statuses (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     text not null references public.users(id) on delete cascade,
+  content_url text not null default '',
+  text        text not null default '',
+  type        text not null default 'text',
+  bg_color    text not null default '#075E54',
+  expires_at  timestamptz not null default now() + interval '24 hours',
+  created_at  timestamptz not null default now()
 );
+alter table public.statuses enable row level security;
 
-create index idx_status_views_status on status_views(status_id);
-create index idx_status_views_viewer on status_views(viewer_id);
--- Prevent duplicate views for same user + status (required for UPSERT)
-create unique index uniq_status_views on status_views(status_id, viewer_id);
+create policy "Users can read statuses"
+  on public.statuses for select
+  using (true);
 
--- Calls
-create table calls (
-    id           uuid primary key default uuid_generate_v4(),
-    caller_id    uuid references users(id) on delete cascade,
-    receiver_id  uuid references users(id) on delete cascade,
-    type         varchar default 'voice',
-    status       varchar default 'ringing',
-    sdp_offer    text,
-    sdp_answer   text,
-    started_at   timestamp with time zone default now(),
-    connected_at timestamp with time zone,
-    ended_at     timestamp with time zone,
-    duration     int default 0,
-    created_at   timestamp with time zone default now()
+create policy "Users can post their own statuses"
+  on public.statuses for insert
+  with check (user_id = auth.uid()::text);
+
+create policy "Users can delete their own statuses"
+  on public.statuses for delete
+  using (user_id = auth.uid()::text);
+
+-- 12. Status Views
+create table if not exists public.status_views (
+  id        uuid primary key default gen_random_uuid(),
+  status_id uuid not null references public.statuses(id) on delete cascade,
+  viewer_id text not null references public.users(id) on delete cascade,
+  viewed_at timestamptz not null default now(),
+  unique (status_id, viewer_id)
 );
+alter table public.status_views enable row level security;
 
-create index idx_calls_caller on calls(caller_id);
-create index idx_calls_receiver on calls(receiver_id);
-create index idx_calls_created on calls(created_at);
+create policy "Status owners can see views"
+  on public.status_views for select
+  using (exists (
+    select 1 from public.statuses where id = status_id and user_id = auth.uid()::text
+  ));
 
--- ICE candidates
-create table ice_candidates (
-    id        uuid primary key default uuid_generate_v4(),
-    call_id   uuid references calls(id) on delete cascade,
-    candidate text not null,
-    sdp_mid   varchar,
-    sdp_mline_index int,
-    created_at timestamp with time zone default now()
+create policy "Viewers can insert"
+  on public.status_views for insert
+  with check (viewer_id = auth.uid()::text);
+
+-- 13. Calls
+create table if not exists public.calls (
+  id          uuid primary key default gen_random_uuid(),
+  caller_id   text not null references public.users(id) on delete cascade,
+  receiver_id text not null references public.users(id) on delete cascade,
+  type        text not null default 'voice',
+  status      text not null default 'ringing',
+  sdp_offer   text not null default '',
+  sdp_answer  text not null default '',
+  started_at  timestamptz not null default now(),
+  connected_at timestamptz,
+  ended_at    timestamptz,
+  duration    int not null default 0,
+  created_at  timestamptz not null default now()
 );
+alter table public.calls enable row level security;
 
-create index idx_ice_call on ice_candidates(call_id);
+create policy "Call participants can read"
+  on public.calls for select
+  using (caller_id = auth.uid()::text or receiver_id = auth.uid()::text);
 
--- Blocked users
-create table blocked_users (
-    id          uuid primary key default uuid_generate_v4(),
-    user_id     uuid references users(id) on delete cascade,
-    blocked_user_id uuid references users(id) on delete cascade,
-    created_at  timestamp with time zone default now()
+create policy "Call participants can insert"
+  on public.calls for insert
+  with check (caller_id = auth.uid()::text);
+
+create policy "Call participants can update"
+  on public.calls for update
+  using (caller_id = auth.uid()::text or receiver_id = auth.uid()::text);
+
+-- 14. ICE Candidates (WebRTC)
+create table if not exists public.ice_candidates (
+  id        uuid primary key default gen_random_uuid(),
+  call_id   uuid not null references public.calls(id) on delete cascade,
+  user_id   text not null references public.users(id) on delete cascade,
+  candidate text not null,
+  created_at timestamptz not null default now()
 );
+alter table public.ice_candidates enable row level security;
 
-create unique index uniq_blocker_blocked on blocked_users(user_id, blocked_user_id);
+create policy "Call participants can read ICE"
+  on public.ice_candidates for select
+  using (true);
 
--- Starred messages
-create table starred_messages (
-    id          uuid primary key default uuid_generate_v4(),
-    user_id     uuid references users(id) on delete cascade,
-    message_id  uuid references messages(id) on delete cascade,
-    created_at  timestamp with time zone default now()
+create policy "Participants can insert ICE"
+  on public.ice_candidates for insert
+  with check (user_id = auth.uid()::text);
+
+-- 15. Polls
+create table if not exists public.polls (
+  id             uuid primary key default gen_random_uuid(),
+  group_id       uuid not null references public.groups(id) on delete cascade,
+  created_by     text not null references public.users(id) on delete cascade,
+  question       text not null,
+  options        text[] not null default '{}',
+  allow_multiple boolean not null default false,
+  created_at     timestamptz not null default now()
 );
+alter table public.polls enable row level security;
 
-create unique index uniq_starred on starred_messages(user_id, message_id);
+create policy "Group members can read polls"
+  on public.polls for select
+  using (exists (
+    select 1 from public.group_members where group_id = polls.group_id and user_id = auth.uid()::text
+  ));
 
--- Saved Contacts
-create table saved_contacts (
-    id          uuid primary key default uuid_generate_v4(),
-    user_id     uuid references users(id) on delete cascade,
-    contact_id  uuid references users(id) on delete cascade,
-    nickname    varchar,
-    created_at  timestamp with time zone default now()
+-- 16. Poll Votes
+create table if not exists public.poll_votes (
+  id         uuid primary key default gen_random_uuid(),
+  poll_id    uuid not null references public.polls(id) on delete cascade,
+  user_id    text not null references public.users(id) on delete cascade,
+  option_idx int not null,
+  created_at timestamptz not null default now(),
+  unique (poll_id, user_id)
 );
+alter table public.poll_votes enable row level security;
 
-create unique index uniq_user_contact on saved_contacts(user_id, contact_id);
+create policy "Group members can vote"
+  on public.poll_votes for all
+  using (user_id = auth.uid()::text);
 
--- Polls
-create table polls (
-    id            uuid primary key default uuid_generate_v4(),
-    group_id      uuid references groups(id) on delete cascade,
-    created_by    uuid references users(id) on delete cascade,
-    question      text not null,
-    options       jsonb not null,
-    allow_multiple boolean default false,
-    created_at    timestamp with time zone default now()
+-- 17. Broadcast Lists
+create table if not exists public.broadcast_lists (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  created_by text not null references public.users(id) on delete cascade,
+  created_at timestamptz not null default now()
 );
+alter table public.broadcast_lists enable row level security;
 
-create index idx_polls_group on polls(group_id);
-create index idx_polls_creator on polls(created_by);
+create policy "Creator can manage broadcast lists"
+  on public.broadcast_lists for all
+  using (created_by = auth.uid()::text);
 
--- Poll votes
-create table poll_votes (
-    id          uuid primary key default uuid_generate_v4(),
-    poll_id     uuid references polls(id) on delete cascade,
-    user_id     uuid references users(id) on delete cascade,
-    option_index int not null,
-    created_at  timestamp with time zone default now()
+-- 18. Broadcast List Members
+create table if not exists public.broadcast_list_members (
+  id        uuid primary key default gen_random_uuid(),
+  list_id   uuid not null references public.broadcast_lists(id) on delete cascade,
+  user_id   text not null references public.users(id) on delete cascade,
+  unique (list_id, user_id)
 );
+alter table public.broadcast_list_members enable row level security;
 
-create unique index uniq_poll_user_option on poll_votes(poll_id, user_id, option_index);
+create policy "List creator can manage members"
+  on public.broadcast_list_members for all
+  using (exists (
+    select 1 from public.broadcast_lists where id = list_id and created_by = auth.uid()::text
+  ));
 
--- ----------------------------------------------------------------
--- 3. ENABLE ROW LEVEL SECURITY
--- ----------------------------------------------------------------
-alter table users enable row level security;
-alter table conversations enable row level security;
-alter table messages enable row level security;
-alter table reactions enable row level security;
-alter table groups enable row level security;
-alter table group_members enable row level security;
-alter table group_messages enable row level security;
-alter table group_message_reads enable row level security;
-alter table group_message_reactions enable row level security;
-alter table statuses enable row level security;
-alter table status_views enable row level security;
-alter table calls enable row level security;
-alter table ice_candidates enable row level security;
-alter table blocked_users enable row level security;
-alter table starred_messages enable row level security;
-alter table saved_contacts enable row level security;
-alter table polls enable row level security;
-alter table poll_votes enable row level security;
-
--- ----------------------------------------------------------------
--- 4. POLICIES
--- ----------------------------------------------------------------
-
--- Membership helpers keep group RLS readable and avoid recursive policies.
-create or replace function public.is_group_member(p_group_id uuid, p_user_id uuid)
-returns boolean
-language sql
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1 from public.group_members gm
-    where gm.group_id = p_group_id and gm.user_id = p_user_id
-  );
-$$;
-
-create or replace function public.is_group_admin(p_group_id uuid, p_user_id uuid)
-returns boolean
-language sql
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1 from public.group_members gm
-    where gm.group_id = p_group_id and gm.user_id = p_user_id and gm.is_admin = true
-  );
-$$;
-
--- Users
-create policy "authenticated read users" on users for select using (auth.uid() is not null);
-create policy "owner update users" on users for update using (auth.uid() = id);
-create policy "users can insert themselves" on users for insert with check (auth.uid() = id);
-
--- Conversations (1:1)
-create policy "conversation participants can read" on conversations for select
-  using (auth.uid() = participant_1 or auth.uid() = participant_2);
-create policy "conversation participants can insert" on conversations for insert
-  with check (auth.uid() = participant_1 or auth.uid() = participant_2);
-create policy "conversation participants can update" on conversations for update
-  using (auth.uid() = participant_1 or auth.uid() = participant_2);
-
--- Messages
-create policy "message participants read" on messages for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
-create policy "message participants insert" on messages for insert with check (auth.uid() = sender_id or auth.uid() = receiver_id);
-create policy "message participants update" on messages for update using (auth.uid() = sender_id or auth.uid() = receiver_id);
-
--- Reactions
-create policy "reaction read message participants" on reactions for select
-  using (
-    exists (
-      select 1 from messages m
-      where m.id = message_id and (m.sender_id = auth.uid() or m.receiver_id = auth.uid())
-    )
-  );
-create policy "reaction insert" on reactions for insert with check (auth.uid() = user_id);
-create policy "reaction delete" on reactions for delete using (auth.uid() = user_id);
-
--- Groups
-create policy "group read members" on groups for select
-  using (created_by = auth.uid() or public.is_group_member(id, auth.uid()));
-create policy "group insert" on groups for insert with check (auth.uid() = created_by);
-create policy "group update admins" on groups for update
-  using (auth.uid() = created_by or public.is_group_admin(id, auth.uid()));
-create policy "group delete creator" on groups for delete using (auth.uid() = created_by);
-
--- Group members
-create policy "group members read members" on group_members for select
-  using (public.is_group_member(group_id, auth.uid()));
-create policy "group members insert admins" on group_members for insert
-  with check (
-    auth.uid() = user_id
-    or exists (select 1 from groups g where g.id = group_id and g.created_by = auth.uid())
-    or public.is_group_admin(group_id, auth.uid())
-  );
-create policy "group members update admins" on group_members for update
-  using (public.is_group_admin(group_id, auth.uid()));
-create policy "group members delete admins or self" on group_members for delete
-  using (auth.uid() = user_id or public.is_group_admin(group_id, auth.uid()));
-
--- Group messages
-create policy "group message read members" on group_messages for select
-  using (public.is_group_member(group_id, auth.uid()));
-create policy "group message insert members" on group_messages for insert
-  with check (auth.uid() = sender_id and public.is_group_member(group_id, auth.uid()));
-create policy "group message update sender or admin" on group_messages for update
-  using (auth.uid() = sender_id or public.is_group_admin(group_id, auth.uid()));
-
--- Statuses
-create policy "status read authenticated" on statuses for select using (auth.uid() is not null);
-create policy "status owner write" on statuses for all using (auth.uid() = user_id);
-
--- Status views
-create policy "status view insert" on status_views for insert with check (auth.uid() = viewer_id);
-create policy "status view read owner or viewer" on status_views for select
-  using (
-    auth.uid() = viewer_id
-    or exists (select 1 from statuses s where s.id = status_id and s.user_id = auth.uid())
-  );
-
--- Calls
-create policy "call participants read" on calls for select using (auth.uid() = caller_id or auth.uid() = receiver_id);
-create policy "call participants insert" on calls for insert with check (auth.uid() = caller_id or auth.uid() = receiver_id);
-create policy "call participants update" on calls for update using (auth.uid() = caller_id or auth.uid() = receiver_id);
-
--- ICE candidates
-create policy "ice read call participants" on ice_candidates for select
-  using (
-    exists (
-      select 1 from calls c
-      where c.id = call_id and (c.caller_id = auth.uid() or c.receiver_id = auth.uid())
-    )
-  );
-create policy "ice insert call participants" on ice_candidates for insert
-  with check (
-    exists (
-      select 1 from calls c
-      where c.id = call_id and (c.caller_id = auth.uid() or c.receiver_id = auth.uid())
-    )
-  );
-
--- Group message reads (needed for read receipts in groups)
-create policy "group reads read members" on group_message_reads for select
-  using (
-    exists (
-      select 1 from group_messages gm
-      where gm.id = message_id and public.is_group_member(gm.group_id, auth.uid())
-    )
-  );
-create policy "group reads insert" on group_message_reads for insert with check (auth.uid() = user_id);
-create policy "group reads upsert" on group_message_reads for update using (auth.uid() = user_id);
-
--- Group message reactions (if you enable reactions later)
-create policy "group reactions read members" on group_message_reactions for select
-  using (
-    exists (
-      select 1 from group_messages gm
-      where gm.id = message_id and public.is_group_member(gm.group_id, auth.uid())
-    )
-  );
-create policy "group reactions insert" on group_message_reactions for insert with check (auth.uid() = user_id);
-create policy "group reactions delete" on group_message_reactions for delete using (auth.uid() = user_id);
-
--- Blocked users
-create policy "blocked read own" on blocked_users for select using (auth.uid() = user_id);
-create policy "blocked insert own" on blocked_users for insert with check (auth.uid() = user_id);
-create policy "blocked delete own" on blocked_users for delete using (auth.uid() = user_id);
-
--- Starred messages
-create policy "starred read own" on starred_messages for select using (auth.uid() = user_id);
-create policy "starred insert own" on starred_messages for insert with check (auth.uid() = user_id);
-create policy "starred delete own" on starred_messages for delete using (auth.uid() = user_id);
-
--- Saved Contacts
-create policy "saved contacts read own" on saved_contacts for select using (auth.uid() = user_id);
-create policy "saved contacts insert own" on saved_contacts for insert with check (auth.uid() = user_id);
-create policy "saved contacts update own" on saved_contacts for update using (auth.uid() = user_id);
-create policy "saved contacts delete own" on saved_contacts for delete using (auth.uid() = user_id);
-
--- Polls
-create policy "poll read members" on polls for select
-  using (public.is_group_member(group_id, auth.uid()));
-create policy "poll creator write" on polls for all
-  using (auth.uid() = created_by or public.is_group_admin(group_id, auth.uid()));
-
--- Poll votes
-create policy "poll vote insert members" on poll_votes for insert
-  with check (
-    auth.uid() = user_id
-    and exists (
-      select 1 from polls p
-      where p.id = poll_id and public.is_group_member(p.group_id, auth.uid())
-    )
-  );
-create policy "poll vote read members" on poll_votes for select
-  using (
-    exists (
-      select 1 from polls p
-      where p.id = poll_id and public.is_group_member(p.group_id, auth.uid())
-    )
-  );
-
--- ============================================================================
--- DATABASE TRIGGERS
--- ============================================================================
-
--- Trigger to automatically save the user into public.users when an account is created
-create or replace function public.handle_new_user() 
-returns trigger as $$
-begin
-  insert into public.users (id, email, name, phone_info, bio, avatar_url)
-  values (
-    new.id, 
-    new.email, 
-    coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
-    coalesce(new.raw_user_meta_data->>'phone_info', ''),
-    'Friends Forever',
-    ''
-  )
-  on conflict (id) do nothing;
-  return new;
-end;
-$$ language plpgsql security definer;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
-
--- ============================================================================
--- OTP CODES (Resend Email Verification)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS public.otp_codes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  email TEXT NOT NULL,
-  code TEXT NOT NULL,
-  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-  is_used BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- 19. Broadcast Messages
+create table if not exists public.broadcast_messages (
+  id        uuid primary key default gen_random_uuid(),
+  list_id   uuid not null references public.broadcast_lists(id) on delete cascade,
+  sender_id text not null references public.users(id) on delete cascade,
+  text      text not null default '',
+  type      text not null default 'text',
+  media_url text not null default '',
+  file_name text not null default '',
+  created_at timestamptz not null default now()
 );
+alter table public.broadcast_messages enable row level security;
 
--- Auto delete expired codes (helper function to be called manually or via pg_cron)
-CREATE OR REPLACE FUNCTION delete_expired_otps()
-RETURNS void AS $$
-BEGIN
-  DELETE FROM public.otp_codes 
-  WHERE expires_at < NOW() OR is_used = TRUE;
-END;
-$$ LANGUAGE plpgsql;
+create policy "List creator can manage messages"
+  on public.broadcast_messages for all
+  using (exists (
+    select 1 from public.broadcast_lists where id = list_id and created_by = auth.uid()::text
+  ));
 
--- RLS for OTP Codes
-ALTER TABLE public.otp_codes ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "otp insert own email" ON public.otp_codes
-  FOR INSERT WITH CHECK (auth.email() = email);
-CREATE POLICY "otp read own email" ON public.otp_codes
-  FOR SELECT USING (auth.email() = email);
-CREATE POLICY "otp update own email" ON public.otp_codes
-  FOR UPDATE USING (auth.email() = email);
+-- 20. Saved Contacts (nicknames)
+create table if not exists public.saved_contacts (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    text not null references public.users(id) on delete cascade,
+  contact_id text not null references public.users(id) on delete cascade,
+  nickname   text not null default '',
+  unique (user_id, contact_id)
+);
+alter table public.saved_contacts enable row level security;
 
+create policy "Users can manage their own contacts"
+  on public.saved_contacts for all
+  using (user_id = auth.uid()::text);
+
+-- 21. Chat Settings (mute, archive, pin)
+create table if not exists public.chat_settings (
+  id       uuid primary key default gen_random_uuid(),
+  user_id  text not null references public.users(id) on delete cascade,
+  chat_id  uuid not null references public.conversations(id) on delete cascade,
+  muted    boolean not null default false,
+  archived boolean not null default false,
+  pinned   boolean not null default false,
+  unique (user_id, chat_id)
+);
+alter table public.chat_settings enable row level security;
+
+create policy "Users can manage their own chat settings"
+  on public.chat_settings for all
+  using (user_id = auth.uid()::text);
+
+-- 22. Favourite Chats
+create table if not exists public.favourite_chats (
+  id       uuid primary key default gen_random_uuid(),
+  user_id  text not null references public.users(id) on delete cascade,
+  chat_id  uuid not null references public.conversations(id) on delete cascade,
+  unique (user_id, chat_id)
+);
+alter table public.favourite_chats enable row level security;
+
+create policy "Users can manage their favourites"
+  on public.favourite_chats for all
+  using (user_id = auth.uid()::text);
+
+-- 23. Status Privacy
+create table if not exists public.status_privacy (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         text not null references public.users(id) on delete cascade,
+  allowed_user_id text not null references public.users(id) on delete cascade,
+  unique (user_id, allowed_user_id)
+);
+alter table public.status_privacy enable row level security;
+
+create policy "Users can manage their status privacy"
+  on public.status_privacy for all
+  using (user_id = auth.uid()::text);
+
+-- 24. Reported Users
+create table if not exists public.reported_users (
+  id              uuid primary key default gen_random_uuid(),
+  reporter_id     text not null references public.users(id) on delete cascade,
+  reported_user_id text not null references public.users(id) on delete cascade,
+  reason          text not null,
+  created_at      timestamptz not null default now()
+);
+alter table public.reported_users enable row level security;
+
+create policy "Users can report"
+  on public.reported_users for insert
+  with check (reporter_id = auth.uid()::text);
+
+-- 25. Scheduled Calls
+create table if not exists public.scheduled_calls (
+  id           uuid primary key default gen_random_uuid(),
+  caller_id    text not null references public.users(id) on delete cascade,
+  receiver_id  text not null references public.users(id) on delete cascade,
+  type         text not null default 'voice',
+  scheduled_at timestamptz not null,
+  created_at   timestamptz not null default now()
+);
+alter table public.scheduled_calls enable row level security;
+
+create policy "Users can manage their scheduled calls"
+  on public.scheduled_calls for all
+  using (caller_id = auth.uid()::text or receiver_id = auth.uid()::text);
+
+-- 26. Unread Markers (manual mark-as-unread)
+create table if not exists public.unread_markers (
+  id        uuid primary key default gen_random_uuid(),
+  user_id   text not null references public.users(id) on delete cascade,
+  chat_id   uuid not null references public.conversations(id) on delete cascade,
+  marked_at timestamptz not null default now(),
+  unique (user_id, chat_id)
+);
+alter table public.unread_markers enable row level security;
+
+create policy "Users can manage their own unread markers"
+  on public.unread_markers for all
+  using (user_id = auth.uid()::text);
+
+-- 27. User Settings
+create table if not exists public.user_settings (
+  id                    uuid primary key default gen_random_uuid(),
+  user_id               text not null unique references public.users(id) on delete cascade,
+  theme                 text not null default 'system',
+  language              text not null default 'en',
+  notification_enabled  boolean not null default true,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+alter table public.user_settings enable row level security;
+
+create policy "Users can manage their own settings"
+  on public.user_settings for all
+  using (user_id = auth.uid()::text);
+
+-- ============================================================
+-- Storage Buckets (create via Supabase Dashboard > Storage)
+-- Or uncomment and run below:
+-- ============================================================
+-- INSERT INTO storage.buckets (id, name, public)
+-- VALUES
+--   ('avatars', 'avatars', true),
+--   ('chat-media', 'chat-media', true),
+--   ('status-media', 'status-media', true),
+--   ('group-icons', 'group-icons', true),
+--   ('documents', 'documents', true),
+--   ('voice-notes', 'voice-notes', true)
+-- ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================
+-- Helpful Indexes
+-- ============================================================
+create index if not exists idx_messages_chat_id on public.messages(chat_id);
+create index if not exists idx_messages_sender_id on public.messages(sender_id);
+create index if not exists idx_messages_created_at on public.messages(created_at);
+create index if not exists idx_conversations_participant_1 on public.conversations(participant_1);
+create index if not exists idx_conversations_participant_2 on public.conversations(participant_2);
+create index if not exists idx_group_members_group_id on public.group_members(group_id);
+create index if not exists idx_group_members_user_id on public.group_members(user_id);
+create index if not exists idx_statuses_user_id on public.statuses(user_id);
+create index if not exists idx_calls_caller_id on public.calls(caller_id);
+create index if not exists idx_calls_receiver_id on public.calls(receiver_id);

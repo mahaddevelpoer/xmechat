@@ -83,20 +83,38 @@ class AuthService {
 
   // ── Create/Update Profile ─────────────────────────
   Future<void> upsertProfile(UserModel user) async {
+    if (currentUserId.isEmpty) {
+      throw Exception('No authenticated user session. Try signing out and back in.');
+    }
     final publicKey = await EncryptionService(currentUserId).getPublicKey();
-    await _client.from(SupabaseConstants.usersTable).upsert({
-      ...user.toMap(),
-      if (publicKey != null) 'public_key': publicKey,
-    });
+    try {
+      await _client.from(SupabaseConstants.usersTable).upsert({
+        ...user.toMap(),
+        if (publicKey != null) 'public_key': publicKey,
+      });
+    } catch (e) {
+      if (e.toString().contains('relation') && e.toString().contains('does not exist')) {
+        throw Exception(
+          'Database tables not found. Please run the SQL script in Supabase SQL Editor. '
+          'See supabase_schema.sql in the project root.'
+        );
+      }
+      rethrow;
+    }
   }
 
   // ── Update Profile Picture ────────────────────────
   Future<String> uploadAvatar(Uint8List bytes, String ext) async {
-    final path = '$currentUserId/avatar.$ext';
-    await _client.storage
-        .from(SupabaseConstants.avatarsBucket)
-        .uploadBinary(path, bytes, fileOptions: FileOptions(upsert: true, contentType: 'image/$ext'));
-    return _client.storage.from(SupabaseConstants.avatarsBucket).getPublicUrl(path);
+    if (currentUserId.isEmpty) return '';
+    try {
+      final path = '$currentUserId/avatar.$ext';
+      await _client.storage
+          .from(SupabaseConstants.avatarsBucket)
+          .uploadBinary(path, bytes, fileOptions: FileOptions(upsert: true, contentType: 'image/$ext'));
+      return _client.storage.from(SupabaseConstants.avatarsBucket).getPublicUrl(path);
+    } catch (_) {
+      return '';
+    }
   }
 
   // ── Update Online Status ──────────────────────────

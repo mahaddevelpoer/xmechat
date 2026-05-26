@@ -1,7 +1,6 @@
 import 'dart:typed_data';
-import 'dart:io' as io;
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import '../../theme.dart';
 import '../../models/models.dart';
 import '../../services/auth_service.dart';
@@ -35,23 +34,18 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        withData: true,
-        withReadStream: false,
+      final XFile? file = await openFile(
+        acceptedTypeGroups: [
+          XTypeGroup(extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']),
+        ],
       );
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        if (file.bytes != null) {
-          setState(() {
-            _avatarBytes = file.bytes;
-            _avatarExt = file.extension ?? 'jpg';
-          });
-        } else if (file.path != null) {
-          final bytes = await io.File(file.path!).readAsBytes();
+      if (file != null) {
+        final bytes = await file.readAsBytes();
+        final ext = file.name.split('.').last;
+        if (mounted) {
           setState(() {
             _avatarBytes = bytes;
-            _avatarExt = file.extension ?? 'jpg';
+            _avatarExt = ext;
           });
         }
       }
@@ -160,11 +154,25 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        TextButton(onPressed: _pickImage, child: const Text('Choose Photo')),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            TextButton(onPressed: _pickImage, child: const Text('Choose Photo')),
+            TextButton(
+              onPressed: _avatarBytes == null ? null : () => setState(() { _avatarBytes = null; _avatarExt = null; }),
+              child: const Text('Remove'),
+            ),
+          ],
+        ),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity, height: 40,
           child: ElevatedButton(onPressed: _complete, child: const Text('Next')),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: _complete,
+          child: const Text('Skip'),
         ),
       ],
     );

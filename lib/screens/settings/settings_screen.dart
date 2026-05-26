@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
+import '../../services/settings_service.dart';
+import '../../services/auth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,314 +11,184 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  int _selectedIndex = 0;
+  int _selectedTab = 0;
   Map<String, dynamic> _prefs = {};
-  Map<String, dynamic>? _userProfile;
   bool _loading = true;
-  String? _myId;
-
-  final List<_SettingsItem> _navItems = [
-    _SettingsItem(Icons.person_outline, 'Profile'),
-    _SettingsItem(Icons.notifications_outlined, 'Notifications'),
-    _SettingsItem(Icons.chat_bubble_outline, 'Chats'),
-    _SettingsItem(Icons.call_outlined, 'Calls'),
-    _SettingsItem(Icons.lock_outlined, 'Account'),
-    _SettingsItem(Icons.info_outline, 'About'),
-  ];
+  late final SettingsService _settingsService;
+  late final AuthService _auth;
 
   @override
   void initState() {
     super.initState();
-    _myId = Supabase.instance.client.auth.currentUser?.id;
-    _loadData();
+    _auth = AuthService();
+    final uid = _auth.currentUserId;
+    _settingsService = SettingsService(uid);
+    _loadSettings();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _loading = true);
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys();
-    final data = <String, dynamic>{};
-    for (final k in keys) {
-      data[k] = prefs.get(k);
+  Future<void> _loadSettings() async {
+    try {
+      final data = await _settingsService.fetchAll();
+      if (mounted) setState(() { _prefs = data; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
-    if (_myId != null) {
-      try {
-        final profile = await Supabase.instance.client
-            .from('users')
-            .select()
-            .eq('id', _myId!)
-            .maybeSingle();
-        if (profile != null && mounted) {
-          setState(() { _userProfile = Map<String, dynamic>.from(profile); _prefs = data; _loading = false; });
-          return;
-        }
-      } catch (_) {}
-    }
-    if (mounted) setState(() { _prefs = data; _loading = false; });
   }
 
   Future<void> _setPref(String key, dynamic value) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (value is bool) {
-      await prefs.setBool(key, value);
-    } else if (value is double) {
-      await prefs.setDouble(key, value);
-    } else if (value is int) {
-      await prefs.setInt(key, value);
-    } else if (value is String) {
-      await prefs.setString(key, value);
-    }
+    await _settingsService.save(key, value);
     setState(() => _prefs[key] = value);
   }
 
   bool _getBool(String key, [bool defaultValue = true]) => _prefs[key] as bool? ?? defaultValue;
-  double _getDouble(String key, [double defaultValue = 14.0]) => _prefs[key] as double? ?? defaultValue;
+  double _getDouble(String key, [double defaultValue = 14]) => _prefs[key] as double? ?? defaultValue;
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Row(
         children: [
-          Container(
-            width: 240,
-            color: AppColors.surface,
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-                  child: Row(
-                    children: [
-                      Text('Settings', style: AppText.panelTitle),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 18),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_userProfile != null)
-                  InkWell(
-                    onTap: () => setState(() => _selectedIndex = 0),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 22,
-                            backgroundColor: AppColors.accentLight,
-                            child: Text(
-                              (_userProfile!['name'] as String? ?? '?')[0].toUpperCase(),
-                              style: AppText.name.copyWith(color: AppColors.accent),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(_userProfile!['name'] as String? ?? 'User', style: AppText.name),
-                                Text(_userProfile!['email'] as String? ?? '', style: AppText.timestamp),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _navItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _navItems[index];
-                      final active = _selectedIndex == index;
-                      return InkWell(
-                        onTap: () => setState(() => _selectedIndex = index),
-                        child: Container(
-                          height: 44,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: active ? AppColors.accentLight : Colors.transparent,
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(item.icon, size: 20, color: active ? AppColors.accent : AppColors.textSecondary),
-                              const SizedBox(width: 12),
-                              Text(item.label, style: AppText.message.copyWith(color: active ? AppColors.accent : AppColors.textPrimary)),
-                              const Spacer(),
-                              Icon(Icons.chevron_right, size: 16, color: AppColors.textHint),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: _buildPanel(),
-            ),
-          ),
+          _buildNav(),
+          Expanded(child: _buildPanel()),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNav() {
+    final items = [
+      ('Profile', Icons.person_outlined),
+      ('Notifications', Icons.notifications_outlined),
+      ('Chats', Icons.chat_bubble_outline),
+      ('Calls', Icons.call_outlined),
+      ('Account', Icons.shield_outlined),
+      ('About', Icons.info_outlined),
+    ];
+    return Container(
+      width: 240,
+      color: AppColors.surface,
+      child: ListView.separated(
+        padding: const EdgeInsets.only(top: 24),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
+        itemBuilder: (_, i) {
+          final active = _selectedTab == i;
+          return ListTile(
+            dense: true,
+            leading: Icon(items[i].$2, size: 20, color: active ? AppColors.accent : AppColors.textHint),
+            title: Text(items[i].$1, style: TextStyle(fontSize: 13, fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
+            selected: active,
+            selectedTileColor: AppColors.accentLight,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(0)),
+            onTap: () => setState(() => _selectedTab = i),
+          );
+        },
       ),
     );
   }
 
   Widget _buildPanel() {
-    switch (_selectedIndex) {
-      case 0: return _buildProfilePanel();
-      case 1: return _buildNotificationsPanel();
-      case 2: return _buildChatsPanel();
-      case 3: return _buildCallsPanel();
-      case 4: return _buildAccountPanel();
-      case 5: return _buildAboutPanel();
-      default: return const SizedBox();
-    }
-  }
-
-  Widget _buildSection(String title, List<Widget> children) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8, left: 4),
-            child: Text(title, style: AppText.sectionHeader),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(children: children),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-  Widget _toggleRow(IconData icon, String label, String subtitle, String key) {
-    final val = _getBool(key);
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: AppColors.textSecondary),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(label, style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-                Text(subtitle, style: AppText.timestamp.copyWith(fontSize: 11)),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onTap: () => _setPref(key, !val),
-            child: Container(
-              width: 42, height: 24,
-              decoration: BoxDecoration(
-                color: val ? AppColors.accent : AppColors.border,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 200),
-                alignment: val ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 18, height: 18,
-                  margin: const EdgeInsets.all(3),
-                  decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                ),
-              ),
-            ),
-          ),
-        ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: [
+          _buildProfilePanel(),
+          _buildNotificationsPanel(),
+          _buildChatsPanel(),
+          _buildCallsPanel(),
+          _buildAccountPanel(),
+          _buildAboutPanel(),
+        ][_selectedTab],
       ),
     );
   }
 
   Widget _buildProfilePanel() {
-    return _buildSection('Profile Info', [
-      Container(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: AppColors.accentLight,
-              child: Text((_userProfile?['name'] as String? ?? '?')[0].toUpperCase(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.accent)),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(_userProfile?['name'] as String? ?? 'User', style: AppText.name.copyWith(fontSize: 15)),
-                  Text(_userProfile?['email'] as String? ?? '', style: AppText.timestamp),
-                ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Profile', style: AppText.heading),
+        const SizedBox(height: 24),
+        Center(
+          child: Column(
+            children: [
+              CircleAvatar(
+                radius: 48,
+                backgroundColor: AppColors.accentLight,
+                child: Text('M', style: TextStyle(fontSize: 32, color: AppColors.accent, fontWeight: FontWeight.w600)),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              TextButton(onPressed: () {}, child: const Text('Change Profile Photo')),
+            ],
+          ),
         ),
-      ),
-      _infoRow(Icons.edit_outlined, 'Display Name', _userProfile?['name'] as String? ?? ''),
-      _infoRow(Icons.description_outlined, 'Bio', _userProfile?['bio'] as String? ?? ''),
-      _infoRow(Icons.phone_outlined, 'Phone', _userProfile?['phone_info'] as String? ?? ''),
-      Container(
-        height: 48,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            const Icon(Icons.email_outlined, size: 18, color: AppColors.textSecondary),
-            const SizedBox(width: 12),
-            Expanded(child: Text(_userProfile?['email'] as String? ?? '', style: AppText.message.copyWith(fontSize: 13))),
-            Text('Read only', style: AppText.timestamp),
-          ],
-        ),
-      ),
-    ]);
+        const SizedBox(height: 24),
+        _readOnlyField('Name', _auth.currentUser?.email ?? 'User'),
+        _readOnlyField('Email', _auth.currentUser?.email ?? ''),
+        _readOnlyField('Bio', _prefs['bio'] as String? ?? ''),
+        _readOnlyField('Phone', _prefs['phone'] as String? ?? ''),
+      ],
+    );
   }
 
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
+  Widget _readOnlyField(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppText.timestamp.copyWith(fontSize: 11)),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Text(value, style: AppText.name),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppText.panelTitle),
+        const SizedBox(height: 12),
+        ...children,
+      ],
+    );
+  }
+
+  Widget _toggleRow(IconData icon, String title, String subtitle, String prefKey) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: AppColors.textSecondary),
+          Icon(icon, size: 20, color: AppColors.textHint),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Text(label, style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-                if (value.isNotEmpty) Text(value, style: AppText.timestamp.copyWith(fontSize: 11)),
+                Text(title, style: AppText.name),
+                Text(subtitle, style: AppText.timestamp),
               ],
             ),
           ),
-          TextButton(
-            onPressed: () {},
-            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-            child: const Text('Edit', style: TextStyle(fontSize: 12)),
+          Switch(
+            value: _getBool(prefKey),
+            activeTrackColor: AppColors.accent.withValues(alpha: 0.5),
+            activeThumbColor: AppColors.accent,
+            onChanged: (v) => _setPref(prefKey, v),
           ),
         ],
       ),
@@ -326,110 +196,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildNotificationsPanel() {
-    return Column(
-      children: [
-        _buildSection('Notifications', [
-          _toggleRow(Icons.message_outlined, 'Message Notifications', 'Show notifications for new messages', 'notif_messages'),
-          _toggleRow(Icons.call_outlined, 'Call Notifications', 'Show incoming call popup', 'notif_calls'),
-          _toggleRow(Icons.notifications_active_outlined, 'Notification Sound', 'Play sound for notifications', 'notif_sound'),
-          _toggleRow(Icons.visibility_outlined, 'Message Preview', 'Show message content in notification', 'notif_preview'),
-        ]),
-        _buildSection('Ringtone', [
-          Container(
-            height: 48,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                const Icon(Icons.music_note_outlined, size: 18, color: AppColors.textSecondary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Call Ringtone', style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-                      Text('Default Ringtone', style: AppText.timestamp.copyWith(fontSize: 11)),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {},
-                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                  child: const Text('Change', style: TextStyle(fontSize: 12)),
-                ),
-              ],
-            ),
-          ),
-        ]),
-      ],
-    );
+    return _buildSection('Notifications', [
+      _toggleRow(Icons.message_outlined, 'Message Notifications', 'Show alerts for new messages', 'msg_notif'),
+      _toggleRow(Icons.volume_up_outlined, 'Sound', 'Play sound for messages', 'notif_sound'),
+      _toggleRow(Icons.vibration_outlined, 'Vibrate', 'Vibrate on new messages', 'notif_vibrate'),
+      _toggleRow(Icons.preview_outlined, 'Preview', 'Show message preview in notifications', 'notif_preview'),
+      const SizedBox(height: 16),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.music_note_outlined, size: 20, color: AppColors.textHint),
+        title: const Text('Ringtone', style: TextStyle(fontSize: 13)),
+        trailing: const Text('Default', style: TextStyle(fontSize: 13, color: AppColors.textHint)),
+        onTap: () {},
+      ),
+    ]);
   }
 
   Widget _buildChatsPanel() {
-    final fontSize = _getDouble('font_size');
-    final fontSizeLabel = fontSize <= 13 ? 'Small' : fontSize <= 15 ? 'Medium' : fontSize <= 17 ? 'Large' : 'Extra Large';
+    final fontSize = _getDouble('font_size', 14);
     return _buildSection('Chat Settings', [
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
           children: [
-            Row(
-              children: [
-                const Icon(Icons.text_fields, size: 18, color: AppColors.textSecondary),
-                const SizedBox(width: 12),
-                Text('Font Size', style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-                const Spacer(),
-                Text('$fontSizeLabel ($fontSize px)', style: AppText.timestamp.copyWith(fontSize: 11)),
-              ],
+            const Icon(Icons.text_fields, size: 20, color: AppColors.textHint),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Font Size', style: TextStyle(fontSize: 13)),
+                  Text('${fontSize.round()}px', style: const TextStyle(fontSize: 11, color: AppColors.textHint)),
+                ],
+              ),
             ),
-            Slider(
-              value: fontSize,
-              min: 12,
-              max: 20,
-              divisions: 8,
-              onChanged: (v) => _setPref('font_size', v),
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: AppColors.border.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(6)),
-              child: Text('Preview text at ${fontSize.toStringAsFixed(0)}px', style: AppText.message.copyWith(fontSize: fontSize)),
+            SizedBox(
+              width: 160,
+              child: Slider(
+                value: fontSize,
+                min: 12, max: 20,
+                divisions: 8,
+                activeColor: AppColors.accent,
+                overlayColor: WidgetStateProperty.all(AppColors.accent.withValues(alpha: 0.1)),
+                thumbColor: AppColors.accent,
+                label: '${fontSize.round()}px',
+                onChanged: (v) => _setPref('font_size', v),
+              ),
             ),
           ],
         ),
       ),
-      _toggleRow(Icons.keyboard_return_outlined, 'Enter Key Sends', 'Press Enter to send, Shift+Enter for new line', 'enter_sends'),
-      _toggleRow(Icons.download_outlined, 'Auto-download Media', 'Automatically download images and videos', 'auto_download'),
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.palette_outlined, size: 18, color: AppColors.textSecondary),
-                const SizedBox(width: 12),
-                Text('Chat Wallpaper', style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                _colorDot(const Color(0xFFF7F7F7), 'default'),
-                _colorDot(const Color(0xFFE8F0FE), 'blue'),
-                _colorDot(const Color(0xFFE8F5E9), 'green'),
-                _colorDot(const Color(0xFFFFF3E0), 'warm'),
-                _colorDot(const Color(0xFFF3E5F5), 'purple'),
-                _colorDot(const Color(0xFF1A2633), 'dark'),
-              ],
-            ),
-          ],
-        ),
+      _toggleRow(Icons.send_outlined, 'Enter Sends', 'Press Enter to send messages', 'enter_sends'),
+      _toggleRow(Icons.download_outlined, 'Auto-Download', 'Auto-download media over WiFi', 'auto_download'),
+      const SizedBox(height: 16),
+      Text('Chat Wallpaper', style: AppText.timestamp.copyWith(fontSize: 11)),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        children: [
+          _colorDot(const Color(0xFFF7F7F7), 'default'),
+          _colorDot(const Color(0xFFE8F5EE), 'green'),
+          _colorDot(const Color(0xFFFFF3E0), 'warm'),
+          _colorDot(const Color(0xFFF3E5F5), 'purple'),
+          _colorDot(const Color(0xFF1A2633), 'dark'),
+        ],
       ),
     ]);
   }
@@ -452,105 +282,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildCallsPanel() {
     return _buildSection('Call Settings', [
       _toggleRow(Icons.mic_off_outlined, 'Auto-mute on Join', 'Start calls muted', 'auto_mute'),
-      _toggleRow(Icons.videocam_off_outlined, 'Camera Off on Join', 'Start video calls with camera off', 'auto_camera_off'),
-      _toggleRow(Icons.volume_up_outlined, 'Default Speaker', 'Use speaker for calls', 'default_speaker'),
+      _toggleRow(Icons.speaker_outlined, 'Speaker on Join', 'Auto-enable speaker', 'auto_speaker'),
+      _toggleRow(Icons.videocam_outlined, 'Camera on Join', 'Auto-enable camera for video calls', 'auto_camera'),
     ]);
   }
 
   Widget _buildAccountPanel() {
-    return Column(
-      children: [
-        _buildSection('Security', [
-          Container(
-            height: 48,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-            child: Row(
-              children: [
-                const Icon(Icons.key_outlined, size: 18, color: AppColors.textSecondary),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Change Password', style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500)),
-                      Text('Update your account password', style: AppText.timestamp.copyWith(fontSize: 11)),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {},
-                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                  child: const Text('Change', style: TextStyle(fontSize: 12)),
-                ),
+    return _buildSection('Account', [
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.lock_outline, size: 20, color: AppColors.textHint),
+        title: const Text('Change Password', style: TextStyle(fontSize: 13)),
+        trailing: const Icon(Icons.chevron_right, size: 20),
+        onTap: () {},
+      ),
+      const Divider(),
+      _toggleRow(Icons.public_outlined, 'Private Account', 'Only approved contacts can message you', 'is_private'),
+      const SizedBox(height: 24),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.logout, size: 18),
+          label: const Text('Sign Out'),
+          style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, side: const BorderSide(color: AppColors.danger)),
+          onPressed: () async {
+            final nav = Navigator.of(context);
+            await _settingsService.clearAll();
+            await _auth.signOut();
+            nav.pushReplacementNamed('/login');
+          },
+        ),
+      ),
+      const SizedBox(height: 12),
+      SizedBox(
+        width: double.infinity,
+        child: TextButton.icon(
+          icon: const Icon(Icons.delete_forever_outlined, size: 18),
+          label: const Text('Delete Account'),
+          style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+          onPressed: () async {
+            final confirm = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+              title: const Text('Delete Account'),
+              content: const Text('This action is irreversible. All your data will be permanently deleted.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: AppColors.danger))),
               ],
-            ),
-          ),
-          _toggleRow(Icons.lock_outlined, 'Privacy', 'Who can find me', 'is_private'),
-        ]),
-        _buildSection('Account Actions', [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await Supabase.instance.client.auth.signOut();
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.clear();
-                  if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
-                },
-                icon: const Icon(Icons.logout, size: 16),
-                label: const Text('Logout'),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.delete_outline, size: 16),
-                label: const Text('Delete Account'),
-                style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, side: const BorderSide(color: AppColors.danger)),
-              ),
-            ),
-          ),
-        ]),
-      ],
-    );
-  }
-
-  Widget _buildAboutPanel() {
-    return _buildSection('About XmeChat', [
-      _simpleRow(Icons.smartphone_outlined, 'Version', '1.0.0 (Build 1)'),
-      _simpleRow(Icons.description_outlined, 'Privacy Policy', '', arrow: true),
-      _simpleRow(Icons.article_outlined, 'Terms of Service', '', arrow: true),
+            ));
+            if (confirm == true) {
+              final nav = Navigator.of(context);
+              await _auth.deleteAccount();
+              nav.pushReplacementNamed('/login');
+            }
+          },
+        ),
+      ),
     ]);
   }
 
-  Widget _simpleRow(IconData icon, String label, String value, {bool arrow = false}) {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: AppColors.textSecondary),
-          const SizedBox(width: 12),
-          Expanded(child: Text(label, style: AppText.message.copyWith(fontSize: 13, fontWeight: FontWeight.w500))),
-          if (value.isNotEmpty) Text(value, style: AppText.timestamp),
-          if (arrow) const Icon(Icons.chevron_right, size: 16, color: AppColors.textHint),
-        ],
-      ),
+  Widget _buildAboutPanel() {
+    return _buildSection('About', [
+      _aboutRow('Version', '1.0.0'),
+      _aboutRow('Privacy Policy', ''),
+      _aboutRow('Terms of Service', ''),
+    ]);
+  }
+
+  Widget _aboutRow(String label, String value) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label, style: AppText.name),
+      trailing: value.isNotEmpty ? Text(value, style: AppText.timestamp) : const Icon(Icons.chevron_right, size: 20),
+      onTap: value.isEmpty ? () {} : null,
     );
   }
-}
-
-class _SettingsItem {
-  final IconData icon;
-  final String label;
-  const _SettingsItem(this.icon, this.label);
 }

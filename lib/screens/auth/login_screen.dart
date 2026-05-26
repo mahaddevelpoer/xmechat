@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
+import '../../services/auth_service.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _obscurePass = true;
   String? _errorMsg;
+  final _auth = AuthService();
 
   @override
   void dispose() {
@@ -27,14 +29,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() { _loading = true; _errorMsg = null; });
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: _emailCtrl.text.trim(),
-        password: _passCtrl.text,
-      );
-    } on AuthException catch (e) {
-      setState(() { _errorMsg = e.message; _loading = false; });
+      await _auth.signIn(email: _emailCtrl.text.trim(), password: _passCtrl.text);
     } catch (e) {
-      setState(() { _errorMsg = 'Something went wrong. Try again.'; _loading = false; });
+      setState(() { _errorMsg = e is AuthException ? e.message : 'Something went wrong. Try again.'; _loading = false; });
     }
   }
 
@@ -45,16 +42,17 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await _auth.resetPassword(email);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Reset link sent to your email.')),
         );
       }
-    } on AuthException catch (e) {
+    } catch (e) {
+      final msg = e is AuthException ? e.message : 'Failed to send reset link';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
+          SnackBar(content: Text(msg)),
         );
       }
     }
@@ -81,12 +79,8 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: AppColors.accent,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  width: 52, height: 52,
+                  decoration: BoxDecoration(color: AppColors.accent, borderRadius: BorderRadius.circular(12)),
                   child: const Icon(Icons.chat_bubble_outline, color: Colors.white, size: 28),
                 ),
                 const SizedBox(height: 16),
@@ -96,10 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 24),
                 TextField(
                   controller: _emailCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Email Address',
-                    prefixIcon: Icon(Icons.email_outlined),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Email Address', prefixIcon: Icon(Icons.email_outlined)),
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 12),
@@ -122,8 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
                 const SizedBox(height: 16),
                 SizedBox(
-                  width: double.infinity,
-                  height: 40,
+                  width: double.infinity, height: 40,
                   child: ElevatedButton(
                     onPressed: _loading ? null : _login,
                     child: _loading
@@ -135,29 +125,20 @@ class _LoginScreenState extends State<LoginScreen> {
                 Row(
                   children: [
                     const Expanded(child: Divider(color: AppColors.border)),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('or', style: AppText.timestamp),
-                    ),
+                    Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Text('or', style: AppText.timestamp)),
                     const Expanded(child: Divider(color: AppColors.border)),
                   ],
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
-                  width: double.infinity,
-                  height: 40,
+                  width: double.infinity, height: 40,
                   child: OutlinedButton(
-                    onPressed: () {
-                      Navigator.push(context, _fadeRoute(const SignupScreen()));
-                    },
+                    onPressed: () => Navigator.push(context, _fadeRoute(const SignupScreen())),
                     child: const Text('Create Account'),
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextButton(
-                  onPressed: _forgotPassword,
-                  child: const Text('Forgot Password?'),
-                ),
+                TextButton(onPressed: _forgotPassword, child: const Text('Forgot Password?')),
               ],
             ),
           ),

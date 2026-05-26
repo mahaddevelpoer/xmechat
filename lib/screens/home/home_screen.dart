@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
+import '../../services/chat_service.dart';
+import '../../models/models.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,14 +15,16 @@ class HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
-  List<Map<String, dynamic>> _chats = [];
-  final Map<String, Map<String, dynamic>> _userCache = {};
+  List<ChatModel> _chats = [];
   bool _loading = true;
-  final String? _myId = Supabase.instance.client.auth.currentUser?.id;
+  late final String _myId;
+  late final ChatService _chatService;
 
   @override
   void initState() {
     super.initState();
+    _myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    _chatService = ChatService(_myId);
     _loadChats();
   }
 
@@ -33,45 +37,17 @@ class HomeScreenState extends State<HomeScreen> {
   Future<void> _loadChats() async {
     setState(() => _loading = true);
     try {
-      final data = await Supabase.instance.client
-          .from('conversations')
-          .select()
-          .or('participant_1.eq.$_myId,participant_2.eq.$_myId')
-          .order('last_message_at', ascending: false);
-      setState(() {
-        _chats = List<Map<String, dynamic>>.from(data);
-        _loading = false;
-      });
-      for (final chat in _chats) {
-        final otherId = chat['participant_1'] == _myId ? chat['participant_2'] : chat['participant_1'];
-        if (!_userCache.containsKey(otherId)) {
-          _cacheUser(otherId);
-        }
-      }
-    } catch (e) {
-      setState(() => _loading = false);
+      final chats = await _chatService.fetchChats();
+      if (mounted) setState(() { _chats = chats; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _cacheUser(String userId) async {
-    try {
-      final data = await Supabase.instance.client
-          .from('users')
-          .select()
-          .eq('id', userId)
-          .maybeSingle();
-      if (data != null && mounted) {
-        setState(() => _userCache[userId] = Map<String, dynamic>.from(data));
-      }
-    } catch (_) {}
-  }
-
-  List<Map<String, dynamic>> get _filteredChats {
+  List<ChatModel> get _filteredChats {
     if (_searchQuery.isEmpty) return _chats;
     return _chats.where((c) {
-      final otherId = c['participant_1'] == _myId ? c['participant_2'] : c['participant_1'];
-      final user = _userCache[otherId];
-      final name = (user?['name'] as String? ?? '').toLowerCase();
+      final name = (c.otherUser?.name ?? '').toLowerCase();
       return name.contains(_searchQuery.toLowerCase());
     }).toList();
   }
@@ -116,10 +92,7 @@ class HomeScreenState extends State<HomeScreen> {
           CircleAvatar(
             radius: 14,
             backgroundColor: AppColors.accentLight,
-            child: Text(
-              _myId?.isNotEmpty == true ? 'M' : '?',
-              style: AppText.timestamp.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700),
-            ),
+            child: Text(_myId.isNotEmpty ? 'M' : '?', style: AppText.timestamp.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700)),
           ),
           const SizedBox(height: 8),
         ],
@@ -134,18 +107,13 @@ class HomeScreenState extends State<HomeScreen> {
       child: GestureDetector(
         onTap: () => setState(() => _navIndex = index),
         child: Container(
-          width: 40,
-          height: 40,
+          width: 40, height: 40,
           margin: const EdgeInsets.symmetric(vertical: 4),
           decoration: BoxDecoration(
             color: active ? AppColors.accentLight : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(
-            icon,
-            size: 20,
-            color: active ? AppColors.accent : AppColors.textHint,
-          ),
+          child: Icon(icon, size: 20, color: active ? AppColors.accent : AppColors.textHint),
         ),
       ),
     );
@@ -222,47 +190,39 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildChatItems() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
     final items = _filteredChats;
     if (items.isEmpty) {
-      return Center(
-        child: Text(_searchQuery.isNotEmpty ? 'No chats found' : 'No conversations yet', style: AppText.preview),
-      );
+      return Center(child: Text(_searchQuery.isNotEmpty ? 'No chats found' : 'No conversations yet', style: AppText.preview));
     }
     return ListView.separated(
       itemCount: items.length,
       separatorBuilder: (_, __) => const Divider(height: 1, indent: 56),
       itemBuilder: (context, index) {
         final chat = items[index];
-        final otherId = chat['participant_1'] == _myId ? chat['participant_2'] : chat['participant_1'];
-        final user = _userCache[otherId];
-        final name = user?['name'] as String? ?? otherId ?? 'Unknown';
-        final avatarUrl = user?['avatar_url'] as String? ?? '';
-        final isOnline = user?['is_online'] as bool? ?? false;
-        final lastMsg = chat['last_message'] as String? ?? '';
-        final lastTime = chat['last_message_at'] as String? ?? '';
+        final user = chat.otherUser;
+        final name = user?.name ?? chat.getOtherUserId(_myId);
+        final avatarUrl = user?.avatarUrl ?? '';
+        final isOnline = user?.isOnline ?? false;
+        final lastMsg = chat.lastMessage;
+        final lastTime = _formatTime(chat.lastMessageAt.toIso8601String());
+        final otherId = chat.getOtherUserId(_myId);
 
         return _buildChatItem(
           name: name,
           avatarUrl: avatarUrl,
           isOnline: isOnline,
           lastMessage: lastMsg,
-          lastTime: _formatTime(lastTime),
-          onTap: () => _openChat(chat['id'] as String, name, avatarUrl, otherId),
+          lastTime: lastTime,
+          onTap: () => _openChat(chat.id, name, avatarUrl, otherId),
         );
       },
     );
   }
 
   Widget _buildChatItem({
-    required String name,
-    required String avatarUrl,
-    required bool isOnline,
-    required String lastMessage,
-    required String lastTime,
-    required VoidCallback onTap,
+    required String name, required String avatarUrl, required bool isOnline,
+    required String lastMessage, required String lastTime, required VoidCallback onTap,
   }) {
     return InkWell(
       onTap: onTap,
@@ -283,14 +243,11 @@ class HomeScreenState extends State<HomeScreen> {
                 ),
                 if (isOnline)
                   Positioned(
-                    bottom: 0,
-                    right: 0,
+                    bottom: 0, right: 0,
                     child: Container(
-                      width: 10,
-                      height: 10,
+                      width: 10, height: 10,
                       decoration: const BoxDecoration(
-                        color: AppColors.online,
-                        shape: BoxShape.circle,
+                        color: AppColors.online, shape: BoxShape.circle,
                         border: Border.fromBorderSide(BorderSide(color: Colors.white, width: 2)),
                       ),
                     ),
@@ -362,12 +319,8 @@ class HomeScreenState extends State<HomeScreen> {
     try {
       final dt = DateTime.parse(iso).toLocal();
       final now = DateTime.now();
-      if (dt.day == now.day) {
-        return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-      }
+      if (dt.day == now.day) return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
       return '${dt.day}/${dt.month}';
-    } catch (_) {
-      return '';
-    }
+    } catch (_) { return ''; }
   }
 }

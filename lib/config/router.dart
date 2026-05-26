@@ -88,9 +88,10 @@ final List<RouteBase> _routes = [
       final extra = state.extra as Map<String, dynamic>?;
       return _fadePage(state, VoiceCallScreen(
         callId: callId,
-        isCaller: extra?['isCaller'] as bool? ?? false,
-        remoteName: extra?['remoteName'] as String?,
-        remoteUserId: extra?['remoteUserId'] as String?,
+        isIncoming: extra?['isIncoming'] as bool? ?? false,
+        otherUserName: extra?['otherUserName'] as String?,
+        otherUserId: extra?['otherUserId'] as String?,
+        sdpOffer: extra?['sdpOffer'] as String?,
       ));
     },
   ),
@@ -101,9 +102,10 @@ final List<RouteBase> _routes = [
       final extra = state.extra as Map<String, dynamic>?;
       return _fadePage(state, VideoCallScreen(
         callId: callId,
-        isCaller: extra?['isCaller'] as bool? ?? false,
-        remoteName: extra?['remoteName'] as String?,
-        remoteUserId: extra?['remoteUserId'] as String?,
+        isIncoming: extra?['isIncoming'] as bool? ?? false,
+        otherUserName: extra?['otherUserName'] as String?,
+        otherUserId: extra?['otherUserId'] as String?,
+        sdpOffer: extra?['sdpOffer'] as String?,
       ));
     },
   ),

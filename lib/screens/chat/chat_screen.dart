@@ -5,6 +5,8 @@ import '../../theme.dart';
 import '../../widgets/chat/message_bubble.dart';
 import '../../widgets/chat/chat_input_bar.dart';
 import '../../widgets/chat/voice_note_player.dart';
+import '../../services/chat_service.dart';
+import '../../models/models.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -27,13 +29,14 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _activeAudioId;
   final String _recordingDuration = '0:00';
 
-  List<Map<String, dynamic>> _messages = [];
+  List<MessageModel> _messages = [];
   bool _loading = true;
   String? _error;
 
-  String? _myId;
+  late final String _myId;
+  late final ChatService _chatService;
   String? _otherUserId;
-  Map<String, dynamic>? _otherUser;
+  UserModel? _otherUser;
 
   bool _isLoadingSend = false;
   bool _isRecording = false;
@@ -41,7 +44,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    _myId = Supabase.instance.client.auth.currentUser?.id;
+    _myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    _chatService = ChatService(_myId);
     _otherUserId = widget.otherUserId;
     _loadData();
     _listenForMessages();
@@ -51,37 +55,28 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _textCtrl.dispose();
     _scrollCtrl.dispose();
-    for (final p in _audioPlayers.values) {
-      p.stop();
-      p.dispose();
-    }
+    for (final p in _audioPlayers.values) { p.stop(); p.dispose(); }
     _audioPlayers.clear();
     super.dispose();
   }
 
   Future<void> _loadData() async {
     try {
-      final conv = await Supabase.instance.client
-          .from('conversations')
-          .select()
-          .eq('id', widget.chatId)
-          .maybeSingle();
-
-      if (conv != null) {
-        _otherUserId ??= conv['participant_1'] == _myId ? conv['participant_2'] : conv['participant_1'];
-      }
-
-      if (_otherUserId != null && _otherUserId!.isNotEmpty) {
-        final userData = await Supabase.instance.client
-            .from('users')
+      if (_otherUserId == null || _otherUserId!.isEmpty) {
+        final userId = _myId;
+        final data = await Supabase.instance.client
+            .from('conversations')
             .select()
-            .eq('id', _otherUserId!)
+            .eq('id', widget.chatId)
             .maybeSingle();
-        if (userData != null && mounted) {
-          setState(() => _otherUser = Map<String, dynamic>.from(userData));
+        if (data != null) {
+          _otherUserId = data['participant_1'] == userId ? data['participant_2'] : data['participant_1'];
         }
       }
-
+      if (_otherUserId != null && _otherUserId!.isNotEmpty) {
+        final user = await _chatService.getUserById(_otherUserId!);
+        if (user != null && mounted) setState(() => _otherUser = user);
+      }
       await _fetchMessages();
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -90,17 +85,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _fetchMessages() async {
     try {
-      final data = await Supabase.instance.client
-          .from('messages')
-          .select()
-          .eq('chat_id', widget.chatId)
-          .eq('deleted_for_everyone', false)
-          .order('created_at', ascending: true);
+      final msgs = await _chatService.fetchMessages(widget.chatId, limit: 100);
       if (mounted) {
-        setState(() {
-          _messages = List<Map<String, dynamic>>.from(data);
-          _loading = false;
-        });
+        setState(() { _messages = msgs; _loading = false; });
         _scrollToBottom();
       }
     } catch (e) {
@@ -109,38 +96,18 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _listenForMessages() {
-    Supabase.instance.client
-        .channel('chat_${widget.chatId}')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'chat_id',
-            value: widget.chatId,
-          ),
-          callback: (payload) {
-            final msg = payload.newRecord;
-            if (msg.isNotEmpty && mounted) {
-              setState(() => _messages.add(Map<String, dynamic>.from(msg)));
-              _scrollToBottom();
-              _markAsRead();
-            }
-          },
-        )
-        .subscribe();
+    _chatService.streamMessages(widget.chatId).listen((data) {
+      if (!mounted) return;
+      final msgs = data.map((m) => MessageModel.fromMap(m)).toList();
+      setState(() => _messages = msgs);
+      _scrollToBottom();
+      _markAsRead();
+    });
   }
 
   Future<void> _markAsRead() async {
-    if (_myId == null || _otherUserId == null) return;
     try {
-      await Supabase.instance.client
-          .from('messages')
-          .update({'status': 'read', 'seen_at': DateTime.now().toIso8601String()})
-          .eq('chat_id', widget.chatId)
-          .eq('sender_id', _otherUserId!)
-          .isFilter('seen_at', null);
+      await _chatService.markAllRead(widget.chatId);
     } catch (_) {}
   }
 
@@ -154,21 +121,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendMessage() async {
     final text = _textCtrl.text.trim();
-    if (text.isEmpty || _isLoadingSend) return;
+    if (text.isEmpty || _isLoadingSend || _otherUserId == null) return;
     setState(() => _isLoadingSend = true);
     try {
-      await Supabase.instance.client.from('messages').insert({
-        'chat_id': widget.chatId,
-        'sender_id': _myId,
-        'text': text,
-        'type': 'text',
-        'status': 'sent',
-        'created_at': DateTime.now().toIso8601String(),
-      });
-      await Supabase.instance.client
-          .from('conversations')
-          .update({'last_message': text, 'last_message_type': 'text', 'last_message_at': DateTime.now().toUtc().toIso8601String()})
-          .eq('id', widget.chatId);
+      await _chatService.sendTextMessage(chatId: widget.chatId, receiverId: _otherUserId!, text: text);
       _textCtrl.clear();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Send failed: $e')));
@@ -176,24 +132,14 @@ class _ChatScreenState extends State<ChatScreen> {
     if (mounted) setState(() => _isLoadingSend = false);
   }
 
-  void _onMicLongPressStart() {
-    setState(() => _isRecording = true);
-  }
+  void _onMicLongPressStart() { setState(() => _isRecording = true); }
+  void _onMicLongPressEnd() { setState(() => _isRecording = false); }
+  void _onCancelRecording() { setState(() => _isRecording = false); }
 
-  void _onMicLongPressEnd() {
-    setState(() => _isRecording = false);
-  }
-
-  void _onCancelRecording() {
-    setState(() => _isRecording = false);
-  }
-
-  void _onMessageLongPress(Map<String, dynamic> msg) {
+  void _onMessageLongPress(MessageModel msg) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -205,7 +151,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: GestureDetector(
-                    onTap: () => Navigator.pop(ctx),
+                    onTap: () {
+                      _chatService.addReaction(msg.id, e);
+                      Navigator.pop(ctx);
+                    },
                     child: CircleAvatar(
                       radius: 14,
                       backgroundColor: AppColors.surface,
@@ -218,43 +167,45 @@ class _ChatScreenState extends State<ChatScreen> {
             const Divider(),
             _actionTile(ctx, Icons.reply_outlined, 'Reply'),
             _actionTile(ctx, Icons.content_copy_outlined, 'Copy'),
-            _actionTile(ctx, Icons.star_outline, 'Star'),
+            _actionTile(ctx, Icons.star_outline, 'Star', onTap: () {
+              _chatService.toggleStar(msg.id, !msg.isStarred);
+              Navigator.pop(ctx);
+            }),
             _actionTile(ctx, Icons.forward_outlined, 'Forward'),
             _actionTile(ctx, Icons.info_outlined, 'Info'),
             const Divider(),
-            _actionTile(ctx, Icons.delete_outline, 'Delete', color: AppColors.danger),
+            _actionTile(ctx, Icons.delete_outline, 'Delete', color: AppColors.danger, onTap: () {
+              _chatService.deleteMessage(msg.id, forEveryone: false);
+              Navigator.pop(ctx);
+            }),
           ],
         ),
       ),
     );
   }
 
-  Widget _actionTile(BuildContext ctx, IconData icon, String label, {Color? color}) {
+  Widget _actionTile(BuildContext ctx, IconData icon, String label, {Color? color, VoidCallback? onTap}) {
     return ListTile(
       leading: Icon(icon, size: 20, color: color ?? AppColors.textPrimary),
       title: Text(label, style: AppText.message.copyWith(color: color ?? AppColors.textPrimary)),
-      onTap: () => Navigator.pop(ctx),
+      onTap: onTap ?? () => Navigator.pop(ctx),
       dense: true,
     );
   }
 
   String _displayName() {
     if (_otherUser == null) return 'Loading...';
-    return _otherUser!['name'] as String? ?? _otherUser!['email'] as String? ?? 'Unknown';
+    return _otherUser!.name.isNotEmpty ? _otherUser!.name : _otherUser!.email;
   }
 
   String _statusText() {
     if (_otherUser == null) return '';
-    final online = _otherUser!['is_online'] as bool? ?? false;
-    if (online) return 'online';
-    final lastSeen = _otherUser!['last_seen'] as String?;
-    if (lastSeen != null) {
-      try {
-        final dt = DateTime.parse(lastSeen).toLocal();
-        return 'last seen ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-      } catch (_) {}
-    }
-    return '';
+    if (_otherUser!.isOnline) return 'online';
+    final lastSeen = _otherUser!.lastSeen;
+    try {
+      final dt = lastSeen.toLocal();
+      return 'last seen ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) { return ''; }
   }
 
   @override
@@ -291,10 +242,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, size: 20),
-            onPressed: () => Navigator.pop(context),
-          ),
+          IconButton(icon: const Icon(Icons.arrow_back, size: 20), onPressed: () => Navigator.pop(context)),
           CircleAvatar(
             radius: 18,
             backgroundColor: AppColors.accentLight,
@@ -333,9 +281,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessagesArea() {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
         child: Column(
@@ -371,42 +317,36 @@ class _ChatScreenState extends State<ChatScreen> {
         itemCount: _messages.length,
         itemBuilder: (context, index) {
           final msg = _messages[index];
-          final isSent = msg['sender_id'] == _myId;
-          final text = msg['text'] as String? ?? '';
-          final type = msg['type'] as String? ?? 'text';
-          final time = _formatTime(msg['created_at'] as String? ?? '');
-          final mediaUrl = msg['media_url'] as String? ?? '';
-          final fileName = msg['file_name'] as String? ?? '';
-          final fileSize = msg['file_size'] as int?;
-          final duration = msg['duration_seconds'] as int? ?? msg['duration'] as int? ?? 0;
-          final status = msg['status'] as String? ?? 'sent';
+          final isSent = msg.senderId == _myId;
+          final time = _formatTime(msg.createdAt.toIso8601String());
 
           String statusIcon = '';
           Color? statusColor;
           if (isSent) {
-            if (status == 'read') {
-              statusIcon = '✓✓';
-              statusColor = const Color(0xFF53BDEB);
-            } else if (status == 'delivered') {
-              statusIcon = '✓✓';
-              statusColor = AppColors.textHint;
-            } else {
-              statusIcon = '✓';
-              statusColor = AppColors.textHint;
+            switch (msg.status) {
+              case MessageStatus.read:
+                statusIcon = '✓✓';
+                statusColor = const Color(0xFF53BDEB);
+              case MessageStatus.delivered:
+                statusIcon = '✓✓';
+                statusColor = AppColors.textHint;
+              default:
+                statusIcon = '✓';
+                statusColor = AppColors.textHint;
             }
           }
 
           Widget? voiceWidget;
-          if (type == 'audio' && mediaUrl.isNotEmpty) {
-            final player = _audioPlayers.putIfAbsent(msg['id'] as String, () => AudioPlayer());
+          if (msg.type == MessageType.audio && msg.mediaUrl.isNotEmpty) {
+            final player = _audioPlayers.putIfAbsent(msg.id, () => AudioPlayer());
             voiceWidget = VoiceNotePlayer(
-              mediaUrl: mediaUrl,
-              durationSeconds: duration,
+              mediaUrl: msg.mediaUrl,
+              durationSeconds: msg.duration,
               player: player,
-              isPlaying: _activeAudioId == msg['id'],
+              isPlaying: _activeAudioId == msg.id,
               progress: 0,
-              onPlayPause: () => _togglePlayPause(msg['id'] as String, player, mediaUrl),
-              onSeek: (f) => player.seek(Duration(seconds: (f * duration).round())),
+              onPlayPause: () => _togglePlayPause(msg.id, player, msg.mediaUrl),
+              onSeek: (f) => player.seek(Duration(seconds: (f * msg.duration).round())),
               speed: player.speed,
               onSpeedChange: (s) => player.setSpeed(s),
             );
@@ -414,12 +354,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
           return MessageBubble(
             isSent: isSent,
-            text: text,
+            text: msg.text,
             time: time,
-            imageUrl: type == 'image' ? mediaUrl : null,
-            fileName: type == 'document' ? fileName : null,
-            fileSize: type == 'document' ? fileSize : null,
-            isVoiceNote: type == 'audio',
+            imageUrl: msg.type == MessageType.image ? msg.mediaUrl : null,
+            fileName: msg.type == MessageType.document ? msg.fileName : null,
+            fileSize: msg.type == MessageType.document ? msg.fileSize : null,
+            isVoiceNote: msg.type == MessageType.audio,
             voiceNoteWidget: voiceWidget,
             statusIcon: statusIcon,
             statusColor: statusColor,
@@ -435,15 +375,13 @@ class _ChatScreenState extends State<ChatScreen> {
       player.pause();
       setState(() => _activeAudioId = null);
     } else {
-      if (_activeAudioId != null) {
-        _audioPlayers[_activeAudioId]?.pause();
-      }
+      if (_activeAudioId != null) _audioPlayers[_activeAudioId]?.pause();
       player.setUrl(url);
       player.play();
       setState(() => _activeAudioId = msgId);
       player.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
-          if (mounted) setState(() => _activeAudioId = null);
+        if (state.processingState == ProcessingState.completed && mounted) {
+          setState(() => _activeAudioId = null);
         }
       });
     }
@@ -453,8 +391,6 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final dt = DateTime.parse(iso).toLocal();
       return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return '';
-    }
+    } catch (_) { return ''; }
   }
 }

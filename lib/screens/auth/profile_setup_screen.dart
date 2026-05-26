@@ -1,8 +1,9 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
+import '../../models/models.dart';
+import '../../services/auth_service.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
   final String email;
@@ -13,15 +14,15 @@ class ProfileSetupScreen extends StatefulWidget {
 }
 
 class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
+  int _step = 0;
   final _nameCtrl = TextEditingController();
-  final _bioCtrl = TextEditingController(text: 'Hey there! I am using XmeChat');
+  final _bioCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
-  XFile? _selectedImage;
-  bool _loading = false;
   bool _isPrivate = false;
-  String? _errorMsg;
-
-  bool get _canContinue => _nameCtrl.text.trim().length >= 2 && _selectedImage != null;
+  bool _loading = false;
+  Uint8List? _avatarBytes;
+  String? _avatarExt;
+  final _auth = AuthService();
 
   @override
   void dispose() {
@@ -32,44 +33,41 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 75);
-    if (picked != null) {
-      setState(() => _selectedImage = picked);
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512);
+    if (file != null) {
+      final bytes = await file.readAsBytes();
+      setState(() {
+        _avatarBytes = bytes;
+        _avatarExt = file.path.split('.').last;
+      });
     }
   }
 
-  Future<void> _saveProfile() async {
-    if (!_canContinue) return;
-    setState(() { _loading = true; _errorMsg = null; });
-
+  Future<void> _complete() async {
+    if (_step < 2) { setState(() => _step++); return; }
+    setState(() => _loading = true);
     try {
-      final supabase = Supabase.instance.client;
-      final userId = supabase.auth.currentUser!.id;
-
-      final bytes = await _selectedImage!.readAsBytes();
-      final fileName = 'avatar_${userId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await supabase.storage.from('avatars').uploadBinary(fileName, bytes);
-      final avatarUrl = supabase.storage.from('avatars').getPublicUrl(fileName);
-
-      await supabase.from('users').upsert({
-        'id': userId,
-        'email': widget.email,
-        'name': _nameCtrl.text.trim(),
-        'bio': _bioCtrl.text.trim(),
-        'phone_info': _phoneCtrl.text.trim(),
-        'avatar_url': avatarUrl,
-        'is_private': _isPrivate,
-        'is_online': true,
-        'last_seen': DateTime.now().toIso8601String(),
-        'created_at': DateTime.now().toIso8601String(),
-      });
-
-      if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      String avatarUrl = '';
+      if (_avatarBytes != null && _avatarExt != null) {
+        avatarUrl = await _auth.uploadAvatar(_avatarBytes!, _avatarExt!);
       }
+      await _auth.upsertProfile(UserModel(
+        id: _auth.currentUserId,
+        email: widget.email,
+        name: _nameCtrl.text.trim().isEmpty ? 'User' : _nameCtrl.text.trim(),
+        bio: _bioCtrl.text.trim(),
+        phoneInfo: _phoneCtrl.text.trim(),
+        avatarUrl: avatarUrl,
+        lastSeen: DateTime.now(),
+        isPrivate: _isPrivate,
+        createdAt: DateTime.now(),
+      ));
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
-      setState(() { _errorMsg = 'Failed to save profile: $e'; _loading = false; });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Setup failed: $e')));
     }
+    if (mounted) setState(() => _loading = false);
   }
 
   @override
@@ -92,124 +90,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    _stepDot(true),
-                    const SizedBox(width: 6),
-                    _stepDot(true),
-                    const SizedBox(width: 6),
-                    _stepDot(false),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text('Set up your profile', style: AppText.heading),
-                const SizedBox(height: 4),
-                Text('This info will be visible to people you chat with', style: AppText.preview),
+                _buildStepper(),
                 const SizedBox(height: 24),
-                InkWell(
-                  onTap: _pickImage,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.border.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border, width: 1.5, style: BorderStyle.solid),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 36,
-                          backgroundColor: AppColors.accentLight,
-                          backgroundImage: _selectedImage != null ? FileImage(File(_selectedImage!.path)) : null,
-                          child: _selectedImage == null
-                              ? const Icon(Icons.camera_alt, color: AppColors.accent, size: 28)
-                              : null,
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Profile Photo', style: AppText.name),
-                              const SizedBox(height: 2),
-                              Text('Required — choose from gallery', style: AppText.timestamp),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Display Name *',
-                    hintText: 'Your display name (min 2 chars)',
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _bioCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Bio',
-                    hintText: 'Hey there! I am using XmeChat',
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _phoneCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone Number (optional)',
-                    hintText: '+92 300 0000000',
-                  ),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 16),
-                InkWell(
-                  onTap: () => setState(() => _isPrivate = !_isPrivate),
-                  borderRadius: BorderRadius.circular(6),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.border.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      children: [
-                        Checkbox(
-                          value: _isPrivate,
-                          onChanged: (v) => setState(() => _isPrivate = v ?? false),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Only people I choose can find me.\nWhen checked, you will not appear in search results.',
-                            style: AppText.preview.copyWith(fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_errorMsg != null) ...[
-                  const SizedBox(height: 8),
-                  Text(_errorMsg!, style: AppText.message.copyWith(color: AppColors.danger)),
-                ],
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  height: 40,
-                  child: ElevatedButton(
-                    onPressed: (_canContinue && !_loading) ? _saveProfile : null,
-                    child: _loading
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('Continue to XmeChat'),
-                  ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _step == 0 ? _buildAvatarStep() : _step == 1 ? _buildInfoStep() : _buildPrivacyStep(),
                 ),
               ],
             ),
@@ -219,14 +104,139 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     );
   }
 
-  Widget _stepDot(bool active) {
-    return Container(
-      width: active ? 24 : 8,
-      height: 8,
-      decoration: BoxDecoration(
-        color: active ? AppColors.accent : AppColors.border,
-        borderRadius: BorderRadius.circular(4),
-      ),
+  Widget _buildStepper() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(3, (i) {
+        return Container(
+          width: 8, height: 8,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          decoration: BoxDecoration(
+            color: i <= _step ? AppColors.accent : AppColors.border,
+            shape: BoxShape.circle,
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildAvatarStep() {
+    return Column(
+      key: const ValueKey(0),
+      children: [
+        Text('Add a Profile Picture', style: AppText.heading),
+        const SizedBox(height: 8),
+        Text('This will be visible to your contacts', style: AppText.preview),
+        const SizedBox(height: 24),
+        GestureDetector(
+          onTap: _pickImage,
+          child: CircleAvatar(
+            radius: 56,
+            backgroundColor: AppColors.accentLight,
+            backgroundImage: _avatarBytes != null ? MemoryImage(_avatarBytes!) : null,
+            child: _avatarBytes == null
+                ? Icon(Icons.camera_alt_outlined, size: 32, color: AppColors.accent)
+                : null,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextButton(onPressed: _pickImage, child: const Text('Choose Photo')),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity, height: 40,
+          child: ElevatedButton(onPressed: _complete, child: const Text('Next')),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoStep() {
+    return Column(
+      key: const ValueKey(1),
+      children: [
+        Text('Tell us about yourself', style: AppText.heading),
+        const SizedBox(height: 24),
+        TextField(
+          controller: _nameCtrl,
+          decoration: InputDecoration(
+            labelText: 'Display Name *',
+            prefixIcon: const Icon(Icons.person_outlined),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _bioCtrl,
+          decoration: InputDecoration(
+            labelText: 'Bio (optional)',
+            prefixIcon: const Icon(Icons.info_outlined),
+          ),
+          maxLines: 3,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _phoneCtrl,
+          decoration: InputDecoration(
+            labelText: 'Phone Number (optional)',
+            prefixIcon: const Icon(Icons.phone_outlined),
+          ),
+          keyboardType: TextInputType.phone,
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity, height: 40,
+          child: ElevatedButton(onPressed: _complete, child: const Text('Next')),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPrivacyStep() {
+    return Column(
+      key: const ValueKey(2),
+      children: [
+        Text('Privacy Settings', style: AppText.heading),
+        const SizedBox(height: 8),
+        Text('Control who can see your information', style: AppText.preview),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.border.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.shield_outlined, color: AppColors.accent, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Private Account', style: AppText.name),
+                    Text('Only approved contacts can message you', style: AppText.timestamp),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _isPrivate,
+                activeTrackColor: AppColors.accent.withValues(alpha: 0.5),
+                activeThumbColor: AppColors.accent,
+                onChanged: (v) => setState(() => _isPrivate = v),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity, height: 40,
+          child: ElevatedButton(
+            onPressed: _loading ? null : _complete,
+            child: _loading
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Complete Setup'),
+          ),
+        ),
+      ],
     );
   }
 }

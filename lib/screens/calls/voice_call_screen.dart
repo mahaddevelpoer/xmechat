@@ -1,21 +1,23 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
+import '../../services/webrtc_service.dart';
+import '../../models/models.dart';
 
 class VoiceCallScreen extends StatefulWidget {
   final String callId;
-  final bool isCaller;
-  final String? remoteUserId;
-  final String? remoteName;
-  final String? remoteAvatar;
+  final String? otherUserId;
+  final String? otherUserName;
+  final bool isIncoming;
+  final String? sdpOffer;
 
   const VoiceCallScreen({
     super.key,
     required this.callId,
-    this.isCaller = false,
-    this.remoteUserId,
-    this.remoteName,
-    this.remoteAvatar,
+    this.otherUserId,
+    this.otherUserName,
+    this.isIncoming = false,
+    this.sdpOffer,
   });
 
   @override
@@ -23,182 +25,183 @@ class VoiceCallScreen extends StatefulWidget {
 }
 
 class _VoiceCallScreenState extends State<VoiceCallScreen> {
+  CallStatus _status = CallStatus.ringing;
   bool _isMuted = false;
-  bool _isSpeakerOn = true;
-  bool _connected = false;
+  bool _isSpeakerOn = false;
   bool _showChat = false;
-  int _seconds = 0;
-  Timer? _timer;
+  final String _timer = '00:00';
+  late final WebRTCService _webrtc;
+  late final String _myId;
+  final _chatCtrl = TextEditingController();
+  final List<String> _chatMessages = [];
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_connected) setState(() => _seconds++);
-    });
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _connected = true);
-    });
+    _myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    _webrtc = WebRTCService(_myId);
+    _webrtc.onCallConnected = () => setState(() => _status = CallStatus.connected);
+    _webrtc.onCallEnded = () => Navigator.pop(context);
+    _webrtc.onRemoteStream = (_) {};
+    _initCall();
+  }
+
+  Future<void> _initCall() async {
+    try {
+      if (widget.isIncoming && widget.sdpOffer != null) {
+        await _webrtc.answerCall(widget.callId, widget.sdpOffer!, isVideo: false);
+      } else if (!widget.isIncoming) {
+        await _webrtc.initiateCall(widget.otherUserId!, isVideo: false);
+      }
+      setState(() => _status = CallStatus.connected);
+    } catch (_) {
+      if (mounted) Navigator.pop(context);
+    }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _webrtc.onCallConnected = null;
+    _webrtc.onCallEnded = null;
+    _webrtc.onRemoteStream = null;
+    _chatCtrl.dispose();
     super.dispose();
   }
 
-  void _endCall() {
-    _timer?.cancel();
-    Navigator.pop(context);
+  void _toggleMute() {
+    _isMuted = !_isMuted;
+    _webrtc.toggleMute(_isMuted);
+    setState(() {});
+  }
+
+  void _toggleSpeaker() {
+    _isSpeakerOn = !_isSpeakerOn;
+    _webrtc.toggleSpeaker(_isSpeakerOn);
+    setState(() {});
+  }
+
+  Future<void> _endCall() async {
+    await _webrtc.endCall();
+    if (mounted) Navigator.pop(context);
+  }
+
+  void _sendChat() {
+    final text = _chatCtrl.text.trim();
+    if (text.isEmpty) return;
+    _webrtc.sendInCallChatMessage(text);
+    _chatMessages.add(text);
+    _chatCtrl.clear();
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.callBg,
+      backgroundColor: const Color(0xFF0F2318),
       body: Stack(
         children: [
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircleAvatar(
-                  radius: 50,
-                  backgroundColor: AppColors.accentLight,
-                  child: Text(
-                    (widget.remoteName ?? '?')[0].toUpperCase(),
-                    style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w700, color: AppColors.accent),
-                  ),
+          Column(
+            children: [
+              const Spacer(),
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: AppColors.accentLight,
+                child: Text(
+                  (widget.otherUserName ?? '?')[0].toUpperCase(),
+                  style: TextStyle(fontSize: 40, color: AppColors.accent, fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 20),
-                Text(widget.remoteName ?? 'Connecting...', style: AppText.callName),
-                const SizedBox(height: 8),
-                Text(
-                  _connected ? 'Connected' : 'Calling...',
-                  style: AppText.timestamp.copyWith(color: Colors.white54, fontSize: 14),
-                ),
-                if (_connected) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '${(_seconds ~/ 60).toString().padLeft(2, '0')}:${(_seconds % 60).toString().padLeft(2, '0')}',
-                    style: AppText.callTimer,
-                  ),
-                ],
-                const SizedBox(height: 60),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _callControl(Icons.mic, _isMuted ? Icons.mic_off : Icons.mic, 'Mute', _isMuted ? Colors.red : Colors.white24, _isMuted, () {
-                      setState(() => _isMuted = !_isMuted);
-                    }),
-                    const SizedBox(width: 20),
-                    _callControl(Icons.volume_up, _isSpeakerOn ? Icons.volume_up : Icons.hearing, 'Speaker', Colors.white24, false, () {
-                      setState(() => _isSpeakerOn = !_isSpeakerOn);
-                    }),
-                    const SizedBox(width: 20),
-                    _endButton(),
-                    const SizedBox(width: 20),
-                    _callControl(Icons.chat_bubble_outline, Icons.chat_bubble_outline, 'Chat', Colors.white24, false, () {
-                      setState(() => _showChat = !_showChat);
-                    }),
-                  ],
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              Text(widget.otherUserName ?? 'Connecting...', style: const TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text(
+                _status == CallStatus.ringing ? 'Calling...' : _status == CallStatus.connected ? _timer : 'Connecting...',
+                style: const TextStyle(fontSize: 14, color: Colors.white70),
+              ),
+              const Spacer(),
+              _buildControls(),
+              const SizedBox(height: 48),
+            ],
           ),
-          if (_showChat) _buildInCallChat(),
+          if (_showChat) _buildChatOverlay(),
         ],
       ),
     );
   }
 
-  Widget _callControl(IconData icon, IconData activeIcon, String label, Color bgColor, bool isActive, VoidCallback onTap) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
-            child: Icon(isActive ? activeIcon : icon, color: Colors.white, size: 24),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-      ],
+  Widget _buildControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _controlBtn(Icons.mic_outlined, _isMuted ? AppColors.danger : Colors.white70, _toggleMute),
+          _controlBtn(Icons.volume_up_outlined, _isSpeakerOn ? AppColors.accent : Colors.white70, _toggleSpeaker),
+          _controlBtn(Icons.call_end, AppColors.danger, _endCall, size: 64),
+          _controlBtn(Icons.chat_outlined, AppColors.accent, () => setState(() => _showChat = !_showChat)),
+        ],
+      ),
     );
   }
 
-  Widget _endButton() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: _endCall,
-          child: Container(
-            width: 64,
-            height: 64,
-            decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
-            child: const Icon(Icons.call_end, color: Colors.white, size: 28),
-          ),
-        ),
-        const SizedBox(height: 4),
-        const Text('End', style: TextStyle(color: Colors.white70, fontSize: 11)),
-      ],
-    );
-  }
-
-  Widget _buildInCallChat() {
-    return Positioned(
-      right: 0,
-      top: 0,
-      bottom: 0,
-      width: MediaQuery.of(context).size.width * 0.4,
+  Widget _controlBtn(IconData icon, Color color, VoidCallback onTap, {double size = 48}) {
+    return GestureDetector(
+      onTap: onTap,
       child: Container(
-        color: Colors.black87,
+        width: size, height: size,
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.2), shape: BoxShape.circle),
+        child: Icon(icon, color: color, size: size * 0.45),
+      ),
+    );
+  }
+
+  Widget _buildChatOverlay() {
+    return Positioned(
+      right: 0, top: 0, bottom: 0,
+      child: Container(
+        width: 300,
+        color: const Color(0xFF0F2318),
         child: Column(
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: Colors.white12)),
-              ),
+              height: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
-                  const Text('In-call Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const Text('In-Call Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white54, size: 18),
-                    onPressed: () => setState(() => _showChat = false),
-                  ),
+                  IconButton(icon: const Icon(Icons.close, color: Colors.white70, size: 20), onPressed: () => setState(() => _showChat = false)),
                 ],
               ),
             ),
-            const Expanded(child: Center(child: Text('Chat messages', style: TextStyle(color: Colors.white38)))),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Colors.white12)),
+            const Divider(color: Colors.white24),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _chatMessages.length,
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: Text(_chatMessages[i], style: const TextStyle(color: Colors.white, fontSize: 13)),
+                ),
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: TextField(
-                      style: TextStyle(color: Colors.white, fontSize: 13),
+                      controller: _chatCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'Type a message...',
-                        hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
-                        border: InputBorder.none,
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true, fillColor: Colors.white12,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.send, color: AppColors.accent, size: 18),
-                    onPressed: () {},
-                  ),
+                  IconButton(icon: const Icon(Icons.send, color: AppColors.accent, size: 20), onPressed: _sendChat),
                 ],
               ),
             ),

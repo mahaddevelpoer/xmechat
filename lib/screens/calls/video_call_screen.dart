@@ -1,21 +1,24 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../theme.dart';
+import '../../services/webrtc_service.dart';
+import '../../models/models.dart';
 
 class VideoCallScreen extends StatefulWidget {
   final String callId;
-  final bool isCaller;
-  final String? remoteUserId;
-  final String? remoteName;
-  final String? remoteAvatar;
+  final String? otherUserId;
+  final String? otherUserName;
+  final bool isIncoming;
+  final String? sdpOffer;
 
   const VideoCallScreen({
     super.key,
     required this.callId,
-    this.isCaller = false,
-    this.remoteUserId,
-    this.remoteName,
-    this.remoteAvatar,
+    this.otherUserId,
+    this.otherUserName,
+    this.isIncoming = false,
+    this.sdpOffer,
   });
 
   @override
@@ -23,218 +26,261 @@ class VideoCallScreen extends StatefulWidget {
 }
 
 class _VideoCallScreenState extends State<VideoCallScreen> {
+  CallStatus _status = CallStatus.ringing;
   bool _isMuted = false;
   bool _isCameraOn = true;
   bool _showChat = false;
-  bool _connected = false;
-  int _seconds = 0;
-  Timer? _timer;
-  Offset _localPosition = const Offset(20, 100);
+  final String _timer = '00:00';
+  late final WebRTCService _webrtc;
+  late final String _myId;
+  final _chatCtrl = TextEditingController();
+  final List<String> _chatMessages = [];
+  final _localRenderer = RTCVideoRenderer();
+  final _remoteRenderer = RTCVideoRenderer();
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_connected) setState(() => _seconds++);
-    });
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _connected = true);
-    });
+    _myId = Supabase.instance.client.auth.currentUser?.id ?? '';
+    _webrtc = WebRTCService(_myId);
+    _initRenderers();
+    _webrtc.onCallConnected = () => setState(() => _status = CallStatus.connected);
+    _webrtc.onCallEnded = () => Navigator.pop(context);
+    _webrtc.onRemoteStream = (stream) {
+      _remoteRenderer.srcObject = stream;
+      setState(() {});
+    };
+    _webrtc.onLocalStream = (stream) {
+      _localRenderer.srcObject = stream;
+      setState(() {});
+    };
+    _initCall();
+  }
+
+  Future<void> _initRenderers() async {
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
+  }
+
+  Future<void> _initCall() async {
+    try {
+      if (widget.isIncoming && widget.sdpOffer != null) {
+        await _webrtc.answerCall(widget.callId, widget.sdpOffer!, isVideo: true);
+      } else if (!widget.isIncoming) {
+        await _webrtc.initiateCall(widget.otherUserId!, isVideo: true);
+      }
+      setState(() => _status = CallStatus.connected);
+    } catch (_) {
+      if (mounted) Navigator.pop(context);
+    }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _webrtc.onCallConnected = null;
+    _webrtc.onCallEnded = null;
+    _webrtc.onRemoteStream = null;
+    _webrtc.onLocalStream = null;
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
+    _chatCtrl.dispose();
     super.dispose();
   }
 
-  void _endCall() {
-    _timer?.cancel();
-    Navigator.pop(context);
+  void _toggleMute() {
+    _isMuted = !_isMuted;
+    _webrtc.toggleMute(_isMuted);
+    setState(() {});
+  }
+
+  void _toggleCamera() {
+    _isCameraOn = !_isCameraOn;
+    _webrtc.toggleCamera(!_isCameraOn);
+    setState(() {});
+  }
+
+  Future<void> _switchCamera() async {
+    await _webrtc.switchCamera();
+  }
+
+  Future<void> _endCall() async {
+    await _webrtc.endCall();
+    if (mounted) Navigator.pop(context);
+  }
+
+  void _sendChat() {
+    final text = _chatCtrl.text.trim();
+    if (text.isEmpty) return;
+    _webrtc.sendInCallChatMessage(text);
+    _chatMessages.add(text);
+    _chatCtrl.clear();
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D1A14),
+      backgroundColor: const Color(0xFF0F2318),
       body: Stack(
         children: [
-          Center(
-            child: _connected
-                ? Container(color: const Color(0xFF1A3A2F), child: const Center(child: Icon(Icons.videocam, size: 80, color: Colors.white12)))
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor: AppColors.accentLight,
-                        child: Text(
-                          (widget.remoteName ?? '?')[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: AppColors.accent),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(widget.remoteName ?? 'Connecting...', style: AppText.callName.copyWith(fontSize: 18)),
-                      const SizedBox(height: 8),
-                      const Text('Connecting...', style: TextStyle(color: Colors.white54, fontSize: 13)),
-                    ],
+          // Remote video (or placeholder)
+          if (_remoteRenderer.srcObject != null)
+            RTCVideoView(_remoteRenderer)
+          else
+            _buildRemotePlaceholder(),
+          // Local video (PIP)
+          if (_isCameraOn && _localRenderer.srcObject != null)
+            Positioned(
+              right: 16, top: 56,
+              child: GestureDetector(
+                onTap: _switchCamera,
+                child: Container(
+                  width: 120, height: 160,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white24),
                   ),
-          ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(7),
+                    child: RTCVideoView(_localRenderer),
+                  ),
+                ),
+              ),
+            ),
+          // Top bar
           Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
+            top: 0, left: 0, right: 0,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(16, 40, 16, 8),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black54, Colors.transparent]),
               ),
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 14,
-                    backgroundColor: AppColors.accent,
-                    child: Text((widget.remoteName ?? '?')[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                    radius: 16,
+                    backgroundColor: AppColors.accentLight,
+                    child: Text(
+                      (widget.otherUserName ?? '?')[0].toUpperCase(),
+                      style: TextStyle(fontSize: 14, color: AppColors.accent, fontWeight: FontWeight.w600),
+                    ),
                   ),
                   const SizedBox(width: 8),
-                  Text(widget.remoteName ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                  Text(widget.otherUserName ?? 'Connecting...', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
                   const Spacer(),
-                  Text(
-                    '${(_seconds ~/ 60).toString().padLeft(2, '0')}:${(_seconds % 60).toString().padLeft(2, '0')}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Segoe UI'),
-                  ),
+                  Text(_timer, style: const TextStyle(color: Colors.white70, fontSize: 13)),
                 ],
               ),
             ),
           ),
+          // Bottom controls
           Positioned(
-            bottom: 100,
-            right: 20,
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                setState(() => _localPosition += details.delta);
-              },
-              child: Container(
-                width: 120,
-                height: 160,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2D4A3E),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white30, width: 1.5),
-                ),
-                child: Center(
-                  child: _isCameraOn
-                      ? const Icon(Icons.person, size: 48, color: Colors.white24)
-                      : const Icon(Icons.videocam_off, size: 32, color: Colors.white38),
-                ),
-              ),
-            ),
+            bottom: 32, left: 0, right: 0,
+            child: _buildControls(),
           ),
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _vcallBtn(Icons.mic, _isMuted ? Icons.mic_off : Icons.mic, _isMuted, () {
-                    setState(() => _isMuted = !_isMuted);
-                  }),
-                  const SizedBox(width: 16),
-                  _vcallBtn(Icons.videocam, _isCameraOn ? Icons.videocam : Icons.videocam_off, !_isCameraOn, () {
-                    setState(() => _isCameraOn = !_isCameraOn);
-                  }),
-                  const SizedBox(width: 16),
-                  _vcallBtn(Icons.flip_camera_android, Icons.flip_camera_android, false, () {}),
-                  const SizedBox(width: 16),
-                  _vcallEndBtn(),
-                  const SizedBox(width: 16),
-                  _vcallBtn(Icons.chat_bubble_outline, Icons.chat_bubble_outline, false, () {
-                    setState(() => _showChat = !_showChat);
-                  }),
-                ],
-              ),
-            ),
-          ),
-          if (_showChat) _buildInCallChat(),
+          // Chat overlay
+          if (_showChat) _buildChatOverlay(),
         ],
       ),
     );
   }
 
-  Widget _vcallBtn(IconData icon, IconData activeIcon, bool isActive, VoidCallback onTap) {
+  Widget _buildRemotePlaceholder() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 50,
+            backgroundColor: AppColors.accentLight,
+            child: Text(
+              (widget.otherUserName ?? '?')[0].toUpperCase(),
+              style: TextStyle(fontSize: 40, color: AppColors.accent, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(widget.otherUserName ?? 'Connecting...', style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(_status == CallStatus.ringing ? 'Ringing...' : 'Connecting...', style: const TextStyle(fontSize: 14, color: Colors.white70)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControls() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _controlBtn(Icons.mic_outlined, _isMuted ? AppColors.danger : Colors.white70, _toggleMute),
+          _controlBtn(Icons.videocam_outlined, _isCameraOn ? AppColors.accent : AppColors.danger, _toggleCamera),
+          _controlBtn(Icons.call_end, AppColors.danger, _endCall, size: 60),
+          _controlBtn(Icons.flip_camera_ios_outlined, Colors.white70, _switchCamera),
+          _controlBtn(Icons.chat_outlined, _showChat ? AppColors.accent : Colors.white70, () => setState(() => _showChat = !_showChat)),
+        ],
+      ),
+    );
+  }
+
+  Widget _controlBtn(IconData icon, Color color, VoidCallback onTap, {double size = 48}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), shape: BoxShape.circle),
-        child: Icon(isActive ? activeIcon : icon, color: Colors.white, size: 22),
+        width: size, height: size,
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.2), shape: BoxShape.circle),
+        child: Icon(icon, color: color, size: size * 0.45),
       ),
     );
   }
 
-  Widget _vcallEndBtn() {
-    return GestureDetector(
-      onTap: _endCall,
-      child: Container(
-        width: 60,
-        height: 60,
-        decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
-        child: const Icon(Icons.call_end, color: Colors.white, size: 24),
-      ),
-    );
-  }
-
-  Widget _buildInCallChat() {
+  Widget _buildChatOverlay() {
     return Positioned(
-      right: 0,
-      top: 0,
-      bottom: 0,
-      width: MediaQuery.of(context).size.width * 0.4,
+      right: 0, top: 0, bottom: 0,
       child: Container(
-        color: Colors.black87,
+        width: 280,
+        color: const Color(0xFF0F2318),
         child: Column(
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white12))),
+              height: 48,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
-                  const Text('In-call Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white54, size: 18),
-                    onPressed: () => setState(() => _showChat = false),
-                  ),
+                  IconButton(icon: const Icon(Icons.close, color: Colors.white70, size: 20), onPressed: () => setState(() => _showChat = false)),
                 ],
               ),
             ),
-            const Expanded(child: Center(child: Text('Chat messages', style: TextStyle(color: Colors.white38)))),
-            Container(
+            const Divider(color: Colors.white24),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _chatMessages.length,
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: Text(_chatMessages[i], style: const TextStyle(color: Colors.white, fontSize: 13)),
+                ),
+              ),
+            ),
+            Padding(
               padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(border: Border(top: BorderSide(color: Colors.white12))),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: TextField(
-                      style: TextStyle(color: Colors.white, fontSize: 13),
+                      controller: _chatCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: 'Type a message...',
-                        hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
-                        border: InputBorder.none,
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true, fillColor: Colors.white12,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.send, color: AppColors.accent, size: 18),
-                    onPressed: () {},
-                  ),
+                  IconButton(icon: const Icon(Icons.send, color: AppColors.accent, size: 20), onPressed: _sendChat),
                 ],
               ),
             ),

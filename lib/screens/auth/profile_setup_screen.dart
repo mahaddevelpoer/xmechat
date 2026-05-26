@@ -34,20 +34,33 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   }
 
   Future<void> _pickImage() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image);
-    if (result != null && result.files.isNotEmpty) {
-      final file = result.files.first;
-      Uint8List bytes;
-      if (file.bytes != null) {
-        bytes = file.bytes!;
-      } else {
-        final f = io.File(file.path!);
-        bytes = await f.readAsBytes();
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+        withReadStream: false,
+      );
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.bytes != null) {
+          setState(() {
+            _avatarBytes = file.bytes;
+            _avatarExt = file.extension ?? 'jpg';
+          });
+        } else if (file.path != null) {
+          final bytes = await io.File(file.path!).readAsBytes();
+          setState(() {
+            _avatarBytes = bytes;
+            _avatarExt = file.extension ?? 'jpg';
+          });
+        }
       }
-      setState(() {
-        _avatarBytes = bytes;
-        _avatarExt = file.extension ?? 'jpg';
-      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
     }
   }
 

@@ -29,10 +29,19 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() { _loading = true; _errorMsg = null; });
     try {
-      await _auth.signIn(email: _emailCtrl.text.trim(), password: _passCtrl.text);
+      await _auth.signIn(email: _emailCtrl.text.trim(), password: _passCtrl.text).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () => throw Exception('Connection timed out'),
+      );
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      return;
     } catch (e) {
-      setState(() { _errorMsg = e is AuthException ? e.message : 'Something went wrong. Try again.'; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _errorMsg = e is AuthException ? e.message : e.toString().replaceFirst('Exception: ', '');
+          _loading = false;
+        });
+      }
     }
   }
 

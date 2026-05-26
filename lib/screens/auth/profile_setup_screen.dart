@@ -1,111 +1,74 @@
-import 'dart:typed_data';
-import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
-import '../../services/auth_service.dart';
-import '../../models/models.dart';
-
 
 class ProfileSetupScreen extends StatefulWidget {
-  const ProfileSetupScreen({super.key});
+  final String email;
+  const ProfileSetupScreen({super.key, required this.email});
 
   @override
   State<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
-class _ProfileSetupScreenState extends State<ProfileSetupScreen>
-    with SingleTickerProviderStateMixin {
-  final _formKey = GlobalKey<FormState>();
+class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _nameCtrl = TextEditingController();
-  final _bioCtrl = TextEditingController();
+  final _bioCtrl = TextEditingController(text: 'Hey there! I am using XmeChat');
   final _phoneCtrl = TextEditingController();
-  final _authService = AuthService();
-
-  late final AnimationController _animCtrl;
-  late final Animation<double> _fade;
-
-  Uint8List? _avatarBytes;
-  String _avatarExt = 'jpg';
-  bool _isPrivate = false;
+  XFile? _selectedImage;
   bool _loading = false;
-  String? _error;
+  bool _isPrivate = false;
+  String? _errorMsg;
 
-  bool get _canContinue =>
-      _avatarBytes != null && _nameCtrl.text.trim().isNotEmpty;
-
-  @override
-  void initState() {
-    super.initState();
-    _animCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 200));
-    _fade = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
-    _animCtrl.forward();
-    _nameCtrl.addListener(() => setState(() {}));
-  }
+  bool get _canContinue => _nameCtrl.text.trim().length >= 2 && _selectedImage != null;
 
   @override
   void dispose() {
-    _animCtrl.dispose();
     _nameCtrl.dispose();
     _bioCtrl.dispose();
     _phoneCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _pickPhoto() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    if (file.bytes == null) return;
-    setState(() {
-      _avatarBytes = file.bytes;
-      _avatarExt = file.extension ?? 'jpg';
-    });
+  Future<void> _pickImage() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 75);
+    if (picked != null) {
+      setState(() => _selectedImage = picked);
+    }
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_avatarBytes == null) {
-      setState(() => _error = 'Please choose a profile photo.');
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _saveProfile() async {
+    if (!_canContinue) return;
+    setState(() { _loading = true; _errorMsg = null; });
 
     try {
-      final userId = _authService.currentUserId;
+      final supabase = Supabase.instance.client;
+      final userId = supabase.auth.currentUser!.id;
 
-      // Upload avatar
-      final avatarUrl =
-          await _authService.uploadAvatar(_avatarBytes!, _avatarExt);
+      final bytes = await _selectedImage!.readAsBytes();
+      final fileName = 'avatar_${userId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await supabase.storage.from('avatars').uploadBinary(fileName, bytes);
+      final avatarUrl = supabase.storage.from('avatars').getPublicUrl(fileName);
 
-      // Upsert profile
-      await _authService.upsertProfile(UserModel(
-        id: userId,
-        email: Supabase.instance.client.auth.currentUser?.email ?? '',
-        name: _nameCtrl.text.trim(),
-        bio: _bioCtrl.text.trim(),
-        phoneInfo: _phoneCtrl.text.trim(),
-        avatarUrl: avatarUrl,
-        isPrivate: _isPrivate,
-        lastSeen: DateTime.now(),
-        createdAt: DateTime.now(),
-      ));
+      await supabase.from('users').upsert({
+        'id': userId,
+        'email': widget.email,
+        'name': _nameCtrl.text.trim(),
+        'bio': _bioCtrl.text.trim(),
+        'phone_info': _phoneCtrl.text.trim(),
+        'avatar_url': avatarUrl,
+        'is_private': _isPrivate,
+        'is_online': true,
+        'last_seen': DateTime.now().toIso8601String(),
+        'created_at': DateTime.now().toIso8601String(),
+      });
 
-      if (!mounted) return;
-      context.go('/home');
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+      }
     } catch (e) {
-      setState(() => _error = 'Failed to save profile: ${e.toString()}');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      setState(() { _errorMsg = 'Failed to save profile: $e'; _loading = false; });
     }
   }
 
@@ -113,289 +76,157 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: FadeTransition(
-        opacity: _fade,
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Container(
-              width: 460,
-              padding: const EdgeInsets.all(36),
-              decoration: AppDeco.card,
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            width: 480,
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 24, offset: const Offset(0, 4)),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
                   children: [
-                    // Step header
-                    Row(
+                    _stepDot(true),
+                    const SizedBox(width: 6),
+                    _stepDot(true),
+                    const SizedBox(width: 6),
+                    _stepDot(false),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Text('Set up your profile', style: AppText.heading),
+                const SizedBox(height: 4),
+                Text('This info will be visible to people you chat with', style: AppText.preview),
+                const SizedBox(height: 24),
+                InkWell(
+                  onTap: _pickImage,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.border.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border, width: 1.5, style: BorderStyle.solid),
+                    ),
+                    child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: AppColors.accentLight,
-                            borderRadius: BorderRadius.circular(4),
+                        CircleAvatar(
+                          radius: 36,
+                          backgroundColor: AppColors.accentLight,
+                          backgroundImage: _selectedImage != null ? FileImage(File(_selectedImage!.path)) : null,
+                          child: _selectedImage == null
+                              ? const Icon(Icons.camera_alt, color: AppColors.accent, size: 28)
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Profile Photo', style: AppText.name),
+                              const SizedBox(height: 2),
+                              Text('Required — choose from gallery', style: AppText.timestamp),
+                            ],
                           ),
-                          child: Text('Step 1 of 1',
-                              style: AppText.caption
-                                  .copyWith(color: AppColors.accent)),
+                        ),
+                        const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.textHint),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Display Name *',
+                    hintText: 'Your display name (min 2 chars)',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _bioCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Bio',
+                    hintText: 'Hey there! I am using XmeChat',
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _phoneCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone Number (optional)',
+                    hintText: '+92 300 0000000',
+                  ),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () => setState(() => _isPrivate = !_isPrivate),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.border.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      children: [
+                        Checkbox(
+                          value: _isPrivate,
+                          onChanged: (v) => setState(() => _isPrivate = v ?? false),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Only people I choose can find me.\nWhen checked, you will not appear in search results.',
+                            style: AppText.preview.copyWith(fontSize: 12),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text('Complete Your Profile', style: AppText.heading),
-                    const SizedBox(height: 4),
-                    Text('This is how others will see you.',
-                        style: AppText.bodyGrey),
-                    const SizedBox(height: 28),
-
-                    // Avatar picker
-                    Center(
-                      child: Column(
-                        children: [
-                          GestureDetector(
-                            onTap: _pickPhoto,
-                            child: Stack(
-                              children: [
-                                Container(
-                                  width: 88,
-                                  height: 88,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                        color: _avatarBytes != null
-                                            ? AppColors.accent
-                                            : AppColors.border,
-                                        width: 2),
-                                    color: AppColors.bg,
-                                  ),
-                                  child: ClipOval(
-                                    child: _avatarBytes != null
-                                        ? Image.memory(
-                                            _avatarBytes!,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : const Icon(
-                                            Icons.person_outline,
-                                            size: 44,
-                                            color: AppColors.textHint,
-                                          ),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    width: 26,
-                                    height: 26,
-                                    decoration: BoxDecoration(
-                                      color: AppColors.accent,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: AppColors.white,
-                                          width: 2),
-                                    ),
-                                    child: const Icon(
-                                      Icons.camera_alt,
-                                      size: 14,
-                                      color: AppColors.white,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: _pickPhoto,
-                            icon: const Icon(Icons.upload_outlined, size: 16),
-                            label: Text(_avatarBytes == null
-                                ? 'Choose Photo *'
-                                : 'Change Photo'),
-                          ),
-                          if (_avatarBytes == null)
-                            Text(
-                              'Profile photo is required',
-                              style: AppText.caption
-                                  .copyWith(color: AppColors.danger),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Error
-                    if (_error != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: AppColors.danger.withOpacity(0.08),
-                          border: Border.all(
-                              color: AppColors.danger.withOpacity(0.3)),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(_error!,
-                            style: AppText.body
-                                .copyWith(color: AppColors.danger)),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // Full Name
-                    _FieldLabel('Full Name', required: true),
-                    const SizedBox(height: 6),
-                    TextFormField(
-                      controller: _nameCtrl,
-                      textInputAction: TextInputAction.next,
-                      style: AppText.body,
-                      decoration: const InputDecoration(
-                        hintText: 'Enter your full name',
-                        prefixIcon:
-                            Icon(Icons.person_outline, size: 18),
-                      ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Full name is required';
-                        }
-                        if (v.trim().length < 2) {
-                          return 'Name must be at least 2 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Bio
-                    _FieldLabel('Bio', required: true),
-                    const SizedBox(height: 6),
-                    TextFormField(
-                      controller: _bioCtrl,
-                      textInputAction: TextInputAction.next,
-                      style: AppText.body,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        hintText: 'A short description about you',
-                        prefixIcon: Icon(Icons.info_outline, size: 18),
-                      ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Bio is required';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Phone (optional)
-                    _FieldLabel('Phone', required: false),
-                    const SizedBox(height: 6),
-                    TextFormField(
-                      controller: _phoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      textInputAction: TextInputAction.done,
-                      style: AppText.body,
-                      decoration: const InputDecoration(
-                        hintText: '+92 300 0000000 (optional)',
-                        prefixIcon: Icon(Icons.phone_outlined, size: 18),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Privacy toggle
-                    InkWell(
-                      onTap: () =>
-                          setState(() => _isPrivate = !_isPrivate),
-                      borderRadius: BorderRadius.circular(6),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: Checkbox(
-                                value: _isPrivate,
-                                onChanged: (v) =>
-                                    setState(() => _isPrivate = v ?? false),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
-                                children: [
-                                  Text('Private account',
-                                      style: AppText.body),
-                                  Text(
-                                    'Only people you choose can find you',
-                                    style: AppText.caption,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Continue button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 40,
-                      child: ElevatedButton(
-                        onPressed:
-                            (_canContinue && !_loading) ? _submit : null,
-                        child: _loading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.white),
-                              )
-                            : const Text('Continue'),
-                      ),
-                    ),
-                    if (!_canContinue) ...[
-                      const SizedBox(height: 6),
-                      Center(
-                        child: Text(
-                          'Add a photo and your name to continue',
-                          style: AppText.caption,
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
+                if (_errorMsg != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_errorMsg!, style: AppText.message.copyWith(color: AppColors.danger)),
+                ],
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 40,
+                  child: ElevatedButton(
+                    onPressed: (_canContinue && !_loading) ? _saveProfile : null,
+                    child: _loading
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Text('Continue to XmeChat'),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
-}
 
-class _FieldLabel extends StatelessWidget {
-  final String text;
-  final bool required;
-  const _FieldLabel(this.text, {required this.required});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(text, style: AppText.bodyGrey),
-        if (required)
-          Text(' *',
-              style: AppText.bodyGrey.copyWith(color: AppColors.danger)),
-      ],
+  Widget _stepDot(bool active) {
+    return Container(
+      width: active ? 24 : 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: active ? AppColors.accent : AppColors.border,
+        borderRadius: BorderRadius.circular(4),
+      ),
     );
   }
 }

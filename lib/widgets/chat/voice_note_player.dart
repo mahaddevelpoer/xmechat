@@ -1,25 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../theme.dart';
-import '../common/user_avatar.dart';
 
-/// Standalone voice note player widget.
-/// Used inside message bubbles for audio messages.
-/// Manages its own AudioPlayer lifecycle.
 class VoiceNotePlayer extends StatefulWidget {
-  final String audioUrl;
+  final String mediaUrl;
   final int durationSeconds;
-  final String? senderAvatarUrl;
-  final String senderName;
-  final bool isSent;
+  final AudioPlayer player;
+  final bool isPlaying;
+  final double progress;
+  final VoidCallback onPlayPause;
+  final ValueChanged<double> onSeek;
+  final double speed;
+  final ValueChanged<double> onSpeedChange;
 
   const VoiceNotePlayer({
     super.key,
-    required this.audioUrl,
+    required this.mediaUrl,
     required this.durationSeconds,
-    this.senderAvatarUrl,
-    required this.senderName,
-    required this.isSent,
+    required this.player,
+    required this.isPlaying,
+    required this.progress,
+    required this.onPlayPause,
+    required this.onSeek,
+    required this.speed,
+    required this.onSpeedChange,
   });
 
   @override
@@ -27,181 +31,119 @@ class VoiceNotePlayer extends StatefulWidget {
 }
 
 class _VoiceNotePlayerState extends State<VoiceNotePlayer> {
-  late final AudioPlayer _player;
-  double _speed = 1.0;
-  bool _loading = false;
-  bool _error = false;
-
-  static const _speeds = [1.0, 1.5, 2.0];
+  late List<double> _barHeights;
 
   @override
   void initState() {
     super.initState();
-    _player = AudioPlayer();
-    _player.playerStateStream.listen((state) {
-      if (mounted) setState(() {});
-    });
-    _player.positionStream.listen((_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
-  Future<void> _togglePlay() async {
-    if (_error) return;
-
-    if (_player.playing) {
-      await _player.pause();
-      return;
-    }
-
-    // Load if not loaded yet
-    if (_player.duration == null) {
-      setState(() => _loading = true);
-      try {
-        await _player.setUrl(widget.audioUrl);
-        await _player.setSpeed(_speed);
-      } catch (_) {
-        if (mounted) setState(() { _loading = false; _error = true; });
-        return;
-      }
-      if (mounted) setState(() => _loading = false);
-    }
-
-    await _player.play();
-  }
-
-  void _cycleSpeed() {
-    final idx = _speeds.indexOf(_speed);
-    final next = _speeds[(idx + 1) % _speeds.length];
-    setState(() => _speed = next);
-    _player.setSpeed(next);
-  }
-
-  String _formatDuration(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
+    _barHeights = List.generate(20, (i) => (4 + (DateTime.now().millisecondsSinceEpoch % 17 + i * 3) % 18).toDouble());
   }
 
   @override
   Widget build(BuildContext context) {
-    final position = _player.position;
-    final duration = _player.duration ?? Duration(seconds: widget.durationSeconds);
-    final progress = duration.inMilliseconds > 0
-        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-    final isPlaying = _player.playing;
-
     return SizedBox(
-      width: 240,
+      height: 40,
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Avatar (shown for received messages)
-          if (!widget.isSent)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: UserAvatar(
-                imageUrl: widget.senderAvatarUrl,
-                name: widget.senderName,
-                size: 32,
-              ),
-            ),
-
-          // Play / pause button
           GestureDetector(
-            onTap: _loading ? null : _togglePlay,
+            onTap: widget.onPlayPause,
             child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: widget.isSent ? AppColors.accent : AppColors.accentLight,
-                shape: BoxShape.circle,
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(color: AppColors.accent, shape: BoxShape.circle),
+              child: Icon(
+                widget.isPlaying ? Icons.pause : Icons.play_arrow,
+                color: Colors.white,
+                size: 18,
               ),
-              child: _loading
-                  ? Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: widget.isSent
-                            ? AppColors.white
-                            : AppColors.accent,
-                      ),
-                    )
-                  : _error
-                      ? Icon(Icons.error_outline,
-                          size: 18,
-                          color: widget.isSent
-                              ? AppColors.white
-                              : AppColors.danger)
-                      : Icon(
-                          isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          size: 20,
-                          color: widget.isSent
-                              ? AppColors.white
-                              : AppColors.accent,
-                        ),
             ),
           ),
-
           const SizedBox(width: 8),
-
-          // Waveform progress + duration
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Progress bar
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: AppColors.border,
-                    color: AppColors.accent,
-                    minHeight: 3,
-                  ),
+          GestureDetector(
+            onTapDown: (details) {
+              final renderBox = context.findRenderObject() as RenderBox;
+              final localPos = renderBox.globalToLocal(details.globalPosition);
+              final width = 120.0;
+              final fraction = (localPos.dx - 40) / width;
+              widget.onSeek(fraction.clamp(0.0, 1.0));
+            },
+            child: SizedBox(
+              width: 120,
+              height: 28,
+              child: CustomPaint(
+                size: const Size(120, 28),
+                painter: _WaveformPainter(
+                  bars: _barHeights,
+                  progress: widget.progress,
+                  activeColor: AppColors.accent,
+                  inactiveColor: AppColors.border,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  _formatDuration(isPlaying || position.inSeconds > 0
-                      ? position
-                      : duration),
-                  style: AppText.timestamp,
-                ),
-              ],
+              ),
             ),
           ),
-
           const SizedBox(width: 6),
-
-          // Speed button
+          Text(
+            widget.isPlaying
+                ? _formatDuration((widget.progress * widget.durationSeconds).round())
+                : _formatDuration(widget.durationSeconds),
+            style: AppText.timestamp,
+          ),
+          const SizedBox(width: 4),
           GestureDetector(
-            onTap: _cycleSpeed,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppColors.border,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                '${_speed == 1.0 ? '1' : _speed == 1.5 ? '1.5' : '2'}x',
-                style: AppText.caption.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textDark,
-                ),
-              ),
-            ),
+            onTap: () {
+              final speeds = [1.0, 1.5, 2.0, 1.0];
+              final idx = speeds.indexOf(widget.speed);
+              widget.onSpeedChange(speeds[(idx + 1) % speeds.length]);
+            },
+            child: Text('${widget.speed.toStringAsFixed(widget.speed == 1.0 ? 0 : 1)}x', style: AppText.timestamp.copyWith(fontSize: 10, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
     );
   }
+
+  String _formatDuration(int sec) {
+    final m = (sec ~/ 60).toString();
+    final s = (sec % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+}
+
+class _WaveformPainter extends CustomPainter {
+  final List<double> bars;
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  _WaveformPainter({
+    required this.bars,
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final barWidth = size.width / bars.length;
+    for (int i = 0; i < bars.length; i++) {
+      final x = i * barWidth + 2;
+      final barH = bars[i].clamp(4.0, size.height);
+      final isActive = i / bars.length <= progress;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(
+            center: Offset(x + barWidth / 2 - 2, size.height / 2),
+            width: 3,
+            height: barH,
+          ),
+          const Radius.circular(2),
+        ),
+        Paint()..color = isActive ? activeColor : inactiveColor,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformPainter old) => old.progress != progress;
 }

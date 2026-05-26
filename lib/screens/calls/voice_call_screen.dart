@@ -1,276 +1,210 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
-import '../../models/models.dart';
-import '../../providers/providers.dart';
-import '../../widgets/common/user_avatar.dart';
 
-class VoiceCallScreen extends ConsumerStatefulWidget {
+class VoiceCallScreen extends StatefulWidget {
   final String callId;
   final bool isCaller;
-  final UserModel? remoteUser;
-  final String sdpOffer; // required for receiver to answer
+  final String? remoteUserId;
+  final String? remoteName;
+  final String? remoteAvatar;
 
   const VoiceCallScreen({
     super.key,
     required this.callId,
-    required this.isCaller,
-    this.remoteUser,
-    this.sdpOffer = '',
+    this.isCaller = false,
+    this.remoteUserId,
+    this.remoteName,
+    this.remoteAvatar,
   });
 
   @override
-  ConsumerState<VoiceCallScreen> createState() => _VoiceCallScreenState();
+  State<VoiceCallScreen> createState() => _VoiceCallScreenState();
 }
 
-class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen> {
-  bool _muted      = false;
-  bool _speaker    = false;
-  bool _connecting = true;
-  bool _ended      = false;
-
-  Timer? _durationTimer;
-  int   _seconds = 0;
+class _VoiceCallScreenState extends State<VoiceCallScreen> {
+  bool _isMuted = false;
+  bool _isSpeakerOn = true;
+  bool _connected = false;
+  bool _showChat = false;
+  int _seconds = 0;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _setupCallbacks();
-    if (!widget.isCaller) {
-      _answerCall();
-    }
-    // For caller: call was already initiated in PrivateChatScreen.
-    // Callbacks above will fire when connected.
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_connected) setState(() => _seconds++);
+    });
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _connected = true);
+    });
   }
 
   @override
   void dispose() {
-    _durationTimer?.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
-  void _setupCallbacks() {
-    final webrtc = ref.read(webrtcServiceProvider);
-    webrtc.onCallConnected = () {
-      if (mounted) {
-        setState(() => _connecting = false);
-        _startTimer();
-      }
-    };
-    webrtc.onCallEnded = () {
-      if (mounted) setState(() { _ended = true; _connecting = false; });
-      _durationTimer?.cancel();
-      _scheduleClose();
-    };
-  }
-
-  Future<void> _answerCall() async {
-    try {
-      String offer = widget.sdpOffer;
-      // Fetch sdp_offer from DB if not passed
-      if (offer.isEmpty) {
-        final row = await Supabase.instance.client
-            .from('calls')
-            .select('sdp_offer')
-            .eq('id', widget.callId)
-            .single();
-        offer = row['sdp_offer'] as String? ?? '';
-      }
-      await ref
-          .read(webrtcServiceProvider)
-          .answerCall(widget.callId, offer, isVideo: false);
-    } catch (e) {
-      if (mounted) setState(() { _connecting = false; _ended = true; });
-    }
-  }
-
-  void _startTimer() {
-    _durationTimer =
-        Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _seconds++);
-    });
-  }
-
-  void _scheduleClose() {
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) context.canPop() ? context.pop() : context.go('/home');
-    });
-  }
-
-  String get _durationLabel {
-    final m = (_seconds ~/ 60).toString().padLeft(2, '0');
-    final s = (_seconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  Future<void> _endCall() async {
-    _durationTimer?.cancel();
-    try {
-      await ref.read(webrtcServiceProvider).endCall();
-    } catch (_) {}
-    if (mounted) {
-      setState(() => _ended = true);
-      _scheduleClose();
-    }
-  }
-
-  void _toggleMute() {
-    setState(() => _muted = !_muted);
-    ref.read(webrtcServiceProvider).toggleMute(_muted);
-  }
-
-  void _toggleSpeaker() {
-    setState(() => _speaker = !_speaker);
-    ref.read(webrtcServiceProvider).toggleSpeaker(_speaker);
+  void _endCall() {
+    _timer?.cancel();
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = widget.remoteUser;
-
     return Scaffold(
-      backgroundColor: const Color(0xFF1A2B1A),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Avatar with glow
-            Container(
-              width: 110,
-              height: 110,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.accent, width: 3),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.accent.withOpacity(0.3),
-                    blurRadius: 20,
-                    spreadRadius: 4,
+      backgroundColor: AppColors.callBg,
+      body: Stack(
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircleAvatar(
+                  radius: 50,
+                  backgroundColor: AppColors.accentLight,
+                  child: Text(
+                    (widget.remoteName ?? '?')[0].toUpperCase(),
+                    style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w700, color: AppColors.accent),
                   ),
-                ],
-              ),
-              child: ClipOval(
-                child: UserAvatar(
-                  imageUrl: user?.avatarUrl,
-                  name: user?.name ?? '?',
-                  size: 110,
                 ),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            Text(
-              user?.name ?? 'Unknown',
-              style: AppText.heading.copyWith(color: AppColors.white),
-            ),
-            const SizedBox(height: 8),
-
-            Text(
-              _ended
-                  ? 'Call ended'
-                  : _connecting
-                      ? (widget.isCaller ? 'Calling...' : 'Connecting...')
-                      : _durationLabel,
-              style: AppText.bodyGrey.copyWith(
-                color: _ended ? AppColors.danger : Colors.white54,
-              ),
-            ),
-            const SizedBox(height: 60),
-
-            if (!_ended)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _CallButton(
-                    icon: _muted ? Icons.mic_off : Icons.mic,
-                    label: _muted ? 'Unmute' : 'Mute',
-                    onTap: _toggleMute,
-                    active: _muted,
-                  ),
-                  const SizedBox(width: 20),
-                  _CallButton(
-                    icon: Icons.call_end_rounded,
-                    label: 'End',
-                    onTap: _endCall,
-                    color: AppColors.danger,
-                    size: 64,
-                  ),
-                  const SizedBox(width: 20),
-                  _CallButton(
-                    icon: _speaker
-                        ? Icons.volume_up_rounded
-                        : Icons.volume_down_rounded,
-                    label: _speaker ? 'Speaker' : 'Earpiece',
-                    onTap: _toggleSpeaker,
-                    active: _speaker,
+                const SizedBox(height: 20),
+                Text(widget.remoteName ?? 'Connecting...', style: AppText.callName),
+                const SizedBox(height: 8),
+                Text(
+                  _connected ? 'Connected' : 'Calling...',
+                  style: AppText.timestamp.copyWith(color: Colors.white54, fontSize: 14),
+                ),
+                if (_connected) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${(_seconds ~/ 60).toString().padLeft(2, '0')}:${(_seconds % 60).toString().padLeft(2, '0')}',
+                    style: AppText.callTimer,
                   ),
                 ],
-              ),
-          ],
-        ),
+                const SizedBox(height: 60),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _callControl(Icons.mic, _isMuted ? Icons.mic_off : Icons.mic, 'Mute', _isMuted ? Colors.red : Colors.white24, _isMuted, () {
+                      setState(() => _isMuted = !_isMuted);
+                    }),
+                    const SizedBox(width: 20),
+                    _callControl(Icons.volume_up, _isSpeakerOn ? Icons.volume_up : Icons.hearing, 'Speaker', Colors.white24, false, () {
+                      setState(() => _isSpeakerOn = !_isSpeakerOn);
+                    }),
+                    const SizedBox(width: 20),
+                    _endButton(),
+                    const SizedBox(width: 20),
+                    _callControl(Icons.chat_bubble_outline, Icons.chat_bubble_outline, 'Chat', Colors.white24, false, () {
+                      setState(() => _showChat = !_showChat);
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (_showChat) _buildInCallChat(),
+        ],
       ),
     );
   }
-}
 
-class _CallButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color? color;
-  final bool active;
-  final double size;
-
-  const _CallButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color,
-    this.active = false,
-    this.size = 54,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = color ??
-        (active ? AppColors.white : const Color(0xFF2C3E2C));
-
+  Widget _callControl(IconData icon, IconData activeIcon, String label, Color bgColor, bool isActive, VoidCallback onTap) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         GestureDetector(
           onTap: onTap,
           child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: bg,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Icon(
-              icon,
-              size: size * 0.45,
-              color: color != null
-                  ? AppColors.white
-                  : active
-                      ? AppColors.textDark
-                      : AppColors.white,
-            ),
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
+            child: Icon(isActive ? activeIcon : icon, color: Colors.white, size: 24),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(label,
-            style: AppText.caption.copyWith(color: Colors.white54)),
+        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
       ],
+    );
+  }
+
+  Widget _endButton() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: _endCall,
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
+            child: const Icon(Icons.call_end, color: Colors.white, size: 28),
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text('End', style: TextStyle(color: Colors.white70, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _buildInCallChat() {
+    return Positioned(
+      right: 0,
+      top: 0,
+      bottom: 0,
+      width: MediaQuery.of(context).size.width * 0.4,
+      child: Container(
+        color: Colors.black87,
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  const Text('In-call Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                    onPressed: () => setState(() => _showChat = false),
+                  ),
+                ],
+              ),
+            ),
+            const Expanded(child: Center(child: Text('Chat messages', style: TextStyle(color: Colors.white38)))),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: TextField(
+                      style: TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Type a message...',
+                        hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.send, color: AppColors.accent, size: 18),
+                    onPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

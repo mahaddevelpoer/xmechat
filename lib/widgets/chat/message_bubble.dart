@@ -1,545 +1,174 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../theme.dart';
-import '../../models/models.dart';
-import 'voice_note_player.dart';
-import 'reply_preview.dart';
-import '../common/user_avatar.dart';
 
-/// Full standalone message bubble.
-/// Handles all message types: text, image, video, audio,
-/// document, location, contact, deleted.
-/// Used in PrivateChatScreen and GroupChatScreen.
 class MessageBubble extends StatelessWidget {
-  final MessageModel message;
   final bool isSent;
-  final String? senderName;      // shown in group chats
-  final String? senderAvatarUrl; // shown in group chats / received
-  final VoidCallback? onReply;
-  final VoidCallback? onDelete;
-  final VoidCallback? onCopy;
-  final VoidCallback? onForward;
-  final VoidCallback? onStar;
-  final bool showSenderName;
+  final String text;
+  final String time;
+  final String? imageUrl;
+  final String? fileName;
+  final int? fileSize;
+  final int? durationSeconds;
+  final bool isVoiceNote;
+  final bool isDocument;
+  final String statusIcon;
+  final Color? statusColor;
+  final Widget? replyPreview;
+  final List<String> reactions;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final Widget? voiceNoteWidget;
 
   const MessageBubble({
     super.key,
-    required this.message,
     required this.isSent,
-    this.senderName,
-    this.senderAvatarUrl,
-    this.onReply,
-    this.onDelete,
-    this.onCopy,
-    this.onForward,
-    this.onStar,
-    this.showSenderName = false,
+    required this.text,
+    required this.time,
+    this.imageUrl,
+    this.fileName,
+    this.fileSize,
+    this.durationSeconds,
+    this.isVoiceNote = false,
+    this.isDocument = false,
+    this.statusIcon = '',
+    this.statusColor,
+    this.replyPreview,
+    this.reactions = const [],
+    this.onTap,
+    this.onLongPress,
+    this.voiceNoteWidget,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (message.deletedForEveryone) {
-      return _DeletedBubble(isSent: isSent);
-    }
-
-    final textColor = isSent ? AppColors.textWhite : AppColors.textDark;
-    final captionColor = isSent ? Colors.white70 : AppColors.textHint;
-    final maxWidth = MediaQuery.of(context).size.width * 0.7;
-
-    return Align(
-      alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: isSent ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
-          if (!isSent) ...[
-            Padding(
-              padding: const EdgeInsets.only(right: 6, bottom: 2),
-              child: UserAvatar(
-                imageUrl: senderAvatarUrl,
-                name: senderName ?? '?',
-                size: 28,
-              ),
-            ),
-          ],
-
+          if (replyPreview != null) replyPreview!,
           GestureDetector(
-            onSecondaryTapDown: (d) =>
-                _showContextMenu(context, d.globalPosition),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: maxWidth),
-              child: IntrinsicWidth(
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 1.5),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 5),
-                  decoration: isSent ? AppDeco.sentBubble : AppDeco.recvBubble,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.58),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSent ? AppColors.sentBubble : AppColors.recvBubble,
+                borderRadius: isSent
+                    ? const BorderRadius.only(
+                        topLeft: Radius.circular(14),
+                        topRight: Radius.circular(14),
+                        bottomLeft: Radius.circular(14),
+                        bottomRight: Radius.circular(3),
+                      )
+                    : const BorderRadius.only(
+                        topLeft: Radius.circular(3),
+                        topRight: Radius.circular(14),
+                        bottomLeft: Radius.circular(14),
+                        bottomRight: Radius.circular(14),
+                      ),
+                border: isSent ? null : Border.all(color: AppColors.border, width: 0.5),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 2, offset: const Offset(0, 1)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (imageUrl != null && imageUrl!.isNotEmpty) _buildImage(),
+                  if (isVoiceNote && voiceNoteWidget != null) voiceNoteWidget!,
+                  if (isDocument) _buildDocument(),
+                  if (text.isNotEmpty) Text(text, style: AppText.message),
+                  const SizedBox(height: 4),
+                  Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (showSenderName && senderName != null && !isSent)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 3),
-                          child: Text(
-                            senderName!,
-                            style: AppText.caption.copyWith(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-
-                      if (message.isForwarded)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 3),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.forward,
-                                  size: 11, color: captionColor),
-                              const SizedBox(width: 3),
-                              Text('Forwarded',
-                                  style: AppText.caption.copyWith(
-                                      color: captionColor,
-                                      fontStyle: FontStyle.italic)),
-                            ],
-                          ),
-                        ),
-
-                      if (message.replyPreview.isNotEmpty)
-                        InlineBubbleReply(
-                          previewText: message.replyPreview,
-                          isSent: isSent,
-                        ),
-
-                      _buildContent(context, textColor, captionColor),
-
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            if (message.isStarred)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 3),
-                                child: Icon(Icons.star,
-                                    size: 10, color: captionColor),
-                              ),
-                            Text(
-                              DateFormat('h:mm a').format(message.createdAt),
-                              style: AppText.timestamp.copyWith(color: captionColor),
-                            ),
-                            if (isSent) ...[
-                              const SizedBox(width: 3),
-                              _TickIcon(status: message.status, isSent: isSent),
-                            ],
-                          ],
-                        ),
-                      ),
+                      Text(time, style: AppText.timestamp),
+                      if (statusIcon.isNotEmpty) ...[
+                        const SizedBox(width: 3),
+                        Icon(Icons.check, size: 12, color: statusColor ?? AppText.timestamp.color),
+                      ],
                     ],
                   ),
-                ),
+                ],
               ),
             ),
           ),
-
-          if (isSent) const SizedBox(width: 34),
+          if (reactions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: reactions.map((r) {
+                  return Container(
+                    margin: const EdgeInsets.only(right: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.recvBubble,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(r, style: const TextStyle(fontSize: 13)),
+                  );
+                }).toList(),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildContent(BuildContext context, Color textColor, Color captionColor) {
-    switch (message.type) {
-      case MessageType.text:
-        return Text(message.text, style: AppText.body.copyWith(color: textColor));
-
-      case MessageType.audio:
-        return VoiceNotePlayer(
-          audioUrl: message.mediaUrl,
-          durationSeconds: message.duration,
-          senderAvatarUrl: senderAvatarUrl,
-          senderName: senderName ?? '?',
-          isSent: isSent,
-        );
-
-      case MessageType.image:
-        return _ImageBubble(url: message.mediaUrl);
-
-      case MessageType.video:
-        return _VideoBubble(url: message.mediaUrl);
-
-      case MessageType.document:
-        return _DocumentBubble(
-          fileName: message.fileName,
-          fileSize: message.fileSize,
-          url: message.mediaUrl,
-        );
-
-      case MessageType.location:
-        return _LocationBubble(
-          lat: message.latitude ?? 0,
-          lng: message.longitude ?? 0,
-          name: message.locationName,
-        );
-
-      case MessageType.contact:
-        return _ContactBubble(
-          name: message.contactName,
-          phone: message.contactPhone,
-        );
-
-      case MessageType.deleted:
-        return Text(
-          'This message was deleted',
-          style: AppText.caption.copyWith(
-            color: captionColor,
-            fontStyle: FontStyle.italic,
-          ),
-        );
-
-      default:
-        return message.text.isNotEmpty
-            ? Text(message.text, style: AppText.body.copyWith(color: textColor))
-            : const SizedBox.shrink();
-    }
-  }
-
-  void _showContextMenu(BuildContext context, Offset globalPos) {
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        globalPos.dx,
-        globalPos.dy,
-        globalPos.dx + 1,
-        globalPos.dy + 1,
-      ),
-      items: [
-        if (onReply != null)
-          PopupMenuItem(
-            onTap: onReply,
-            child: const _MenuRow(Icons.reply, 'Reply'),
-          ),
-        if (message.type == MessageType.text && onCopy != null)
-          PopupMenuItem(
-            onTap: onCopy,
-            child: const _MenuRow(Icons.copy, 'Copy'),
-          ),
-        if (onForward != null)
-          PopupMenuItem(
-            onTap: onForward,
-            child: const _MenuRow(Icons.forward, 'Forward'),
-          ),
-        if (onStar != null)
-          PopupMenuItem(
-            onTap: onStar,
-            child: _MenuRow(
-              message.isStarred ? Icons.star_border : Icons.star,
-              message.isStarred ? 'Unstar' : 'Star',
-            ),
-          ),
-        if (onDelete != null)
-          PopupMenuItem(
-            onTap: onDelete,
-            child: const _MenuRow(Icons.delete_outline, 'Delete',
-                color: AppColors.danger),
-          ),
-      ],
-    );
-  }
-}
-
-// ─── Content sub-widgets ─────────────────────────────
-
-class _ImageBubble extends StatelessWidget {
-  final String url;
-  const _ImageBubble({required this.url});
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildImage() {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(10),
       child: Image.network(
-        url,
-        width: 220,
-        height: 180,
+        imageUrl!,
+        width: 200,
+        height: 160,
         fit: BoxFit.cover,
-        loadingBuilder: (_, child, progress) => progress == null
-            ? child
-            : Container(
-                width: 220,
-                height: 180,
-                color: AppColors.border,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    value: progress.expectedTotalBytes != null
-                        ? progress.cumulativeBytesLoaded /
-                            progress.expectedTotalBytes!
-                        : null,
-                    color: AppColors.accent,
-                    strokeWidth: 2,
-                  ),
-                ),
-              ),
+        loadingBuilder: (_, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            width: 200,
+            height: 160,
+            color: AppColors.border.withValues(alpha: 0.2),
+            child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          );
+        },
         errorBuilder: (_, __, ___) => Container(
-          width: 220,
-          height: 60,
-          color: AppColors.border,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.broken_image_outlined,
-                  size: 20, color: AppColors.textHint),
-              const SizedBox(width: 6),
-                          Text('Image unavailable',
-                                  style: AppText.custom(
-                                      fontSize: 12,
-                                      color: AppColors.textHint)),
-            ],
-          ),
+          width: 200,
+          height: 160,
+          color: AppColors.border.withValues(alpha: 0.2),
+          child: const Center(child: Icon(Icons.broken_image, color: AppColors.textHint)),
         ),
       ),
     );
   }
-}
 
-class _VideoBubble extends StatelessWidget {
-  final String url;
-  const _VideoBubble({required this.url});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 220,
-      height: 140,
-      decoration: BoxDecoration(
-        color: Colors.black87,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Center(
-        child: Icon(Icons.play_circle_fill_rounded,
-            size: 48, color: AppColors.white),
-      ),
-    );
-  }
-}
-
-class _DocumentBubble extends StatelessWidget {
-  final String fileName;
-  final int fileSize;
-  final String url;
-  const _DocumentBubble(
-      {required this.fileName, required this.fileSize, required this.url});
-
-  String get _sizeLabel {
-    if (fileSize < 1024) return '${fileSize}B';
-    if (fileSize < 1024 * 1024) {
-      return '${(fileSize / 1024).toStringAsFixed(1)}KB';
-    }
-    return '${(fileSize / 1024 / 1024).toStringAsFixed(1)}MB';
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildDocument() {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 40,
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppColors.accent.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: const Icon(Icons.insert_drive_file_outlined,
-              color: AppColors.accent, size: 22),
-        ),
-        const SizedBox(width: 10),
+        const Icon(Icons.insert_drive_file_outlined, size: 24, color: AppColors.accent),
+        const SizedBox(width: 8),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: 140,
-              child: Text(
-                fileName.isNotEmpty ? fileName : 'Document',
-                style: AppText.body,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text(_sizeLabel, style: AppText.caption),
+            Text(fileName ?? 'Document', style: AppText.name.copyWith(fontSize: 12)),
+            if (fileSize != null)
+              Text(_formatSize(fileSize!), style: AppText.timestamp),
           ],
         ),
         const SizedBox(width: 8),
-        const Icon(Icons.download_outlined,
-            size: 18, color: AppColors.accent),
+        const Icon(Icons.download, size: 16, color: AppColors.accent),
       ],
     );
   }
-}
 
-class _LocationBubble extends StatelessWidget {
-  final double lat;
-  final double lng;
-  final String name;
-  const _LocationBubble(
-      {required this.lat, required this.lng, required this.name});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 200,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.bg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.location_on, color: AppColors.danger, size: 24),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name.isNotEmpty ? name : 'Location',
-                  style: AppText.body,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
-                  style: AppText.caption,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ContactBubble extends StatelessWidget {
-  final String name;
-  final String phone;
-  const _ContactBubble({required this.name, required this.phone});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 200,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.bg,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            radius: 18,
-            backgroundColor: AppColors.accentLight,
-            child: Icon(Icons.person, color: AppColors.accent, size: 20),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: AppText.name, maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-                Text(phone, style: AppText.caption),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DeletedBubble extends StatelessWidget {
-  final bool isSent;
-  const _DeletedBubble({required this.isSent});
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: isSent ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: AppColors.border,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.block, size: 14, color: AppColors.textHint),
-            const SizedBox(width: 6),
-            Text(
-              'This message was deleted',
-              style:
-                  AppText.bodyGrey.copyWith(fontStyle: FontStyle.italic),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Tick icons ──────────────────────────────────────
-
-class _TickIcon extends StatelessWidget {
-  final MessageStatus status;
-  final bool isSent;
-  const _TickIcon({required this.status, required this.isSent});
-
-  @override
-  Widget build(BuildContext context) {
-    final baseColor = isSent ? Colors.white70 : AppColors.textHint;
-    switch (status) {
-      case MessageStatus.sending:
-        return SizedBox(
-          width: 12,
-          height: 12,
-          child: CircularProgressIndicator(
-              strokeWidth: 1.5, color: baseColor),
-        );
-      case MessageStatus.sent:
-        return Icon(Icons.check, size: 13, color: baseColor);
-      case MessageStatus.delivered:
-        return Icon(Icons.done_all, size: 13, color: baseColor);
-      case MessageStatus.read:
-        return Icon(Icons.done_all, size: 13,
-            color: isSent ? AppColors.white : AppColors.accent);
-    }
-  }
-}
-
-class _MenuRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _MenuRow(this.icon, this.label,
-      {this.color = AppColors.textDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 10),
-        Text(label,
-            style: AppText.body.copyWith(color: color)),
-      ],
-    );
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }

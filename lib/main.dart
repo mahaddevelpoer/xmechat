@@ -1,20 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'utils/desktop.dart';
-import 'dart:io' show Platform;
-
-import 'app.dart';
+import 'package:window_manager/window_manager.dart';
 import 'core/constants/supabase_constants.dart';
-
 import 'services/xmechat_root.dart';
+import 'app.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Supabase
   await Supabase.initialize(
     url: SupabaseConstants.supabaseUrl,
     anonKey: SupabaseConstants.supabaseAnonKey,
@@ -23,14 +17,8 @@ void main() async {
     ),
   );
 
-  // Initialize Firebase for FCM push notifications
-  try {
-    await Firebase.initializeApp();
-  } catch (_) {
-    // Firebase may fail on desktop - that's OK
-  }
+  await windowManager.ensureInitialized();
 
-  // Init Background Service
   await XmeChatRoot.instance.init();
 
   runApp(
@@ -39,14 +27,19 @@ void main() async {
     ),
   );
 
-  // Desktop window config
-  if (!kIsWeb && Platform.isWindows) {
-    doWhenWindowReady(() {
-      appWindow.minSize = const Size(900, 650);
-      appWindow.size = const Size(1200, 800);
-      appWindow.alignment = Alignment.center;
-      appWindow.title = "XmeChat";
-      appWindow.show();
-    });
-  }
+  await windowManager.waitUntilReadyToShow(
+    WindowOptions(
+      size: const Size(1100, 720),
+      minimumSize: const Size(800, 600),
+      center: true,
+      title: 'XmeChat',
+      backgroundColor: Colors.transparent,
+      skipTaskbar: false,
+      titleBarStyle: TitleBarStyle.normal,
+    ),
+    () async {
+      await windowManager.show();
+      await windowManager.focus();
+    },
+  );
 }

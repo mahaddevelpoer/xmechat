@@ -1,538 +1,246 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../theme.dart';
-import '../../models/models.dart';
-import '../../providers/providers.dart';
-import '../../widgets/common/user_avatar.dart';
 
-class VideoCallScreen extends ConsumerStatefulWidget {
+class VideoCallScreen extends StatefulWidget {
   final String callId;
   final bool isCaller;
-  final UserModel? remoteUser;
-  final String sdpOffer; // for receiver to answer
+  final String? remoteUserId;
+  final String? remoteName;
+  final String? remoteAvatar;
 
   const VideoCallScreen({
     super.key,
     required this.callId,
-    required this.isCaller,
-    this.remoteUser,
-    this.sdpOffer = '',
+    this.isCaller = false,
+    this.remoteUserId,
+    this.remoteName,
+    this.remoteAvatar,
   });
 
   @override
-  ConsumerState<VideoCallScreen> createState() => _VideoCallScreenState();
+  State<VideoCallScreen> createState() => _VideoCallScreenState();
 }
 
-class _VideoCallScreenState extends ConsumerState<VideoCallScreen> {
-  final RTCVideoRenderer _localRenderer  = RTCVideoRenderer();
-  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-
-  bool _muted           = false;
-  bool _cameraOff       = false;
-  bool _speaker         = true;
-  bool _connecting      = true;
-  bool _ended           = false;
-  bool _controlsVisible = true;
-
-  Timer? _durationTimer;
-  Timer? _controlsTimer;
-  int   _seconds = 0;
+class _VideoCallScreenState extends State<VideoCallScreen> {
+  bool _isMuted = false;
+  bool _isCameraOn = true;
+  bool _showChat = false;
+  bool _connected = false;
+  int _seconds = 0;
+  Timer? _timer;
+  Offset _localPosition = const Offset(20, 100);
 
   @override
   void initState() {
     super.initState();
-    _initRenderers();
-  }
-
-  Future<void> _initRenderers() async {
-    await _localRenderer.initialize();
-    await _remoteRenderer.initialize();
-    _setupCallbacks();
-    if (!widget.isCaller) {
-      await _answerCall();
-    } else {
-      // Caller: streams already started in initiateCall
-      final webrtc = ref.read(webrtcServiceProvider);
-      _localRenderer.srcObject  = webrtc.localStream;
-      _remoteRenderer.srcObject = webrtc.remoteStream;
-      if (mounted) setState(() {});
-    }
-  }
-
-  void _setupCallbacks() {
-    final webrtc = ref.read(webrtcServiceProvider);
-    webrtc.onCallConnected = () {
-      if (mounted) {
-        setState(() => _connecting = false);
-        _localRenderer.srcObject  = webrtc.localStream;
-        _remoteRenderer.srcObject = webrtc.remoteStream;
-        _startTimer();
-      }
-    };
-    webrtc.onCallEnded = () {
-      _durationTimer?.cancel();
-      _controlsTimer?.cancel();
-      if (mounted) setState(() { _ended = true; _connecting = false; });
-      _scheduleClose();
-    };
-    webrtc.onRemoteStream = (stream) {
-      if (mounted) {
-        _remoteRenderer.srcObject = stream;
-        setState(() {});
-      }
-    };
-    webrtc.onLocalStream = (stream) {
-      if (mounted) {
-        _localRenderer.srcObject = stream;
-        setState(() {});
-      }
-    };
-  }
-
-  Future<void> _answerCall() async {
-    try {
-      String offer = widget.sdpOffer;
-      if (offer.isEmpty) {
-        final row = await Supabase.instance.client
-            .from('calls')
-            .select('sdp_offer')
-            .eq('id', widget.callId)
-            .single();
-        offer = row['sdp_offer'] as String? ?? '';
-      }
-      final webrtc = ref.read(webrtcServiceProvider);
-      await webrtc.answerCall(widget.callId, offer, isVideo: true);
-      if (mounted) {
-        _localRenderer.srcObject  = webrtc.localStream;
-        _remoteRenderer.srcObject = webrtc.remoteStream;
-        setState(() {});
-      }
-    } catch (e) {
-      if (mounted) setState(() { _connecting = false; _ended = true; });
-    }
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_connected) setState(() => _seconds++);
+    });
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _connected = true);
+    });
   }
 
   @override
   void dispose() {
-    _durationTimer?.cancel();
-    _controlsTimer?.cancel();
-    _localRenderer.dispose();
-    _remoteRenderer.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 
-  void _startTimer() {
-    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _seconds++);
-    });
-    // Auto-hide controls after 4 seconds
-    _controlsTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && !_ended) setState(() => _controlsVisible = false);
-    });
-  }
-
-  void _scheduleClose() {
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) context.canPop() ? context.pop() : context.go('/home');
-    });
-  }
-
-  String get _durationLabel {
-    final m = (_seconds ~/ 60).toString().padLeft(2, '0');
-    final s = (_seconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  Future<void> _endCall() async {
-    _durationTimer?.cancel();
-    _controlsTimer?.cancel();
-    try {
-      await ref.read(webrtcServiceProvider).endCall();
-    } catch (_) {}
-    if (mounted) {
-      setState(() => _ended = true);
-      _scheduleClose();
-    }
-  }
-
-  void _toggleMute() {
-    setState(() => _muted = !_muted);
-    ref.read(webrtcServiceProvider).toggleMute(_muted);
-  }
-
-  void _toggleCamera() {
-    setState(() => _cameraOff = !_cameraOff);
-    ref.read(webrtcServiceProvider).toggleCamera(_cameraOff);
-  }
-
-  void _toggleSpeaker() {
-    setState(() => _speaker = !_speaker);
-    ref.read(webrtcServiceProvider).toggleSpeaker(_speaker);
-  }
-
-  Future<void> _flipCamera() async {
-    await ref.read(webrtcServiceProvider).switchCamera();
-  }
-
-  void _onTapScreen() {
-    setState(() => _controlsVisible = true);
-    _controlsTimer?.cancel();
-    _controlsTimer = Timer(const Duration(seconds: 4), () {
-      if (mounted && !_ended) setState(() => _controlsVisible = false);
-    });
+  void _endCall() {
+    _timer?.cancel();
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _onTapScreen,
-        child: Stack(
-          children: [
-            // ── Remote video (full screen) ─────────────
-            Positioned.fill(
-              child: _ended
-                  ? Center(
-                      child: Text('Call ended',
-                              style: AppText.custom(
-                                  color: Colors.white54,
-                                  fontSize: 18)))
-                  : _connecting && _remoteRenderer.srcObject == null
-                      ? _ConnectingView(
-                          user: widget.remoteUser,
-                          isCaller: widget.isCaller,
-                        )
-                      : RTCVideoView(
-                          _remoteRenderer,
-                          objectFit: RTCVideoViewObjectFit
-                              .RTCVideoViewObjectFitCover,
+      backgroundColor: const Color(0xFF0D1A14),
+      body: Stack(
+        children: [
+          Center(
+            child: _connected
+                ? Container(color: const Color(0xFF1A3A2F), child: const Center(child: Icon(Icons.videocam, size: 80, color: Colors.white12)))
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 40,
+                        backgroundColor: AppColors.accentLight,
+                        child: Text(
+                          (widget.remoteName ?? '?')[0].toUpperCase(),
+                          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: AppColors.accent),
                         ),
-            ),
-
-            // ── Local video (full-screen during connecting, pip after) ─────────
-            if (_connecting && !_ended && _localRenderer.srcObject != null)
-              Positioned.fill(
-                child: ClipRRect(
-                  child: _cameraOff
-                      ? Container(
-                          color: const Color(0xFF1A2B1A),
-                          child: const Center(
-                            child: Icon(Icons.videocam_off,
-                                color: Colors.white54, size: 48),
-                          ),
-                        )
-                      : RTCVideoView(
-                          _localRenderer,
-                          mirror: true,
-                          objectFit: RTCVideoViewObjectFit
-                              .RTCVideoViewObjectFitCover,
-                        ),
-                ),
-              ),
-
-            // ── Frosted overlay on local preview during connecting ─────────
-            if (_connecting && !_ended)
-              Positioned.fill(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.3),
-                        Colors.transparent,
-                        Colors.black.withOpacity(0.3),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(widget.remoteName ?? 'Connecting...', style: AppText.callName.copyWith(fontSize: 18)),
+                      const SizedBox(height: 8),
+                      const Text('Connecting...', style: TextStyle(color: Colors.white54, fontSize: 13)),
+                    ],
                   ),
-                ),
+          ),
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.black54, Colors.transparent]),
               ),
-
-            // ── Remote connecting overlay ─────────────
-            if (_connecting && !_ended)
-              Positioned.fill(
-                child: _ConnectingView(
-                  user: widget.remoteUser,
-                  isCaller: widget.isCaller,
-                ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: AppColors.accent,
+                    child: Text((widget.remoteName ?? '?')[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(widget.remoteName ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                  const Spacer(),
+                  Text(
+                    '${(_seconds ~/ 60).toString().padLeft(2, '0')}:${(_seconds % 60).toString().padLeft(2, '0')}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Segoe UI'),
+                  ),
+                ],
               ),
-
-            // ── Local video (bottom-right pip) AFTER connecting ─────────
-            if (!_connecting && !_ended)
-              Positioned(
-                right: 16,
-                bottom: 120,
-                child: ClipRRect(
+            ),
+          ),
+          Positioned(
+            bottom: 100,
+            right: 20,
+            child: GestureDetector(
+              onPanUpdate: (details) {
+                setState(() => _localPosition += details.delta);
+              },
+              child: Container(
+                width: 120,
+                height: 160,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2D4A3E),
                   borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    width: 100,
-                    height: 140,
-                    child: _cameraOff
-                        ? Container(
-                            color: const Color(0xFF1A2B1A),
-                            child: const Center(
-                              child: Icon(Icons.videocam_off,
-                                  color: Colors.white54, size: 32),
-                            ),
-                          )
-                        : RTCVideoView(
-                            _localRenderer,
-                            mirror: true,
-                            objectFit: RTCVideoViewObjectFit
-                                .RTCVideoViewObjectFitCover,
-                          ),
-                  ),
+                  border: Border.all(color: Colors.white30, width: 1.5),
                 ),
-              ),
-
-            // ── Top status bar ─────────────────────────
-            AnimatedOpacity(
-              opacity: _controlsVisible ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 200),
-              child: Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding:
-                      const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.7),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back,
-                            color: AppColors.white),
-                        onPressed: _endCall,
-                      ),
-                      const Spacer(),
-                      Column(
-                        children: [
-                          Text(
-                            widget.remoteUser?.name ?? 'Video Call',
-                            style: AppText.name
-                                .copyWith(color: AppColors.white),
-                          ),
-                          Text(
-                            _ended
-                                ? 'Call ended'
-                                : _connecting
-                                    ? 'Connecting...'
-                                    : _durationLabel,
-                            style: AppText.caption
-                                .copyWith(color: Colors.white54),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      const SizedBox(width: 48),
-                    ],
-                  ),
+                child: Center(
+                  child: _isCameraOn
+                      ? const Icon(Icons.person, size: 48, color: Colors.white24)
+                      : const Icon(Icons.videocam_off, size: 32, color: Colors.white38),
                 ),
               ),
             ),
-
-            // ── Bottom controls ────────────────────────
-            AnimatedOpacity(
-              opacity: _controlsVisible ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 200),
-              child: Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  padding:
-                      const EdgeInsets.fromLTRB(24, 20, 24, 32),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.8),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _VideoCallBtn(
-                        icon: _muted ? Icons.mic_off : Icons.mic,
-                        label: _muted ? 'Unmute' : 'Mute',
-                        onTap: _toggleMute,
-                        active: _muted,
-                      ),
-                      _VideoCallBtn(
-                        icon: _cameraOff
-                            ? Icons.videocam_off
-                            : Icons.videocam,
-                        label: _cameraOff ? 'Cam Off' : 'Camera',
-                        onTap: _toggleCamera,
-                        active: _cameraOff,
-                      ),
-                      // End call
-                      Column(
-                        children: [
-                          GestureDetector(
-                            onTap: _endCall,
-                            child: Container(
-                              width: 64,
-                              height: 64,
-                              decoration: BoxDecoration(
-                                color: AppColors.danger,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.danger
-                                        .withOpacity(0.4),
-                                    blurRadius: 12,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                  Icons.call_end_rounded,
-                                  color: AppColors.white,
-                                  size: 30),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text('End',
-                              style: AppText.custom(
-                                  fontSize: 11,
-                                  color: Colors.white54)),
-                        ],
-                      ),
-                      _VideoCallBtn(
-                        icon: _speaker
-                            ? Icons.volume_up_rounded
-                            : Icons.volume_off_rounded,
-                        label: 'Speaker',
-                        onTap: _toggleSpeaker,
-                        active: _speaker,
-                      ),
-                      _VideoCallBtn(
-                        icon: Icons.flip_camera_ios_outlined,
-                        label: 'Flip',
-                        onTap: _flipCamera,
-                      ),
-                    ],
-                  ),
-                ),
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black87, Colors.transparent]),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _vcallBtn(Icons.mic, _isMuted ? Icons.mic_off : Icons.mic, _isMuted, () {
+                    setState(() => _isMuted = !_isMuted);
+                  }),
+                  const SizedBox(width: 16),
+                  _vcallBtn(Icons.videocam, _isCameraOn ? Icons.videocam : Icons.videocam_off, !_isCameraOn, () {
+                    setState(() => _isCameraOn = !_isCameraOn);
+                  }),
+                  const SizedBox(width: 16),
+                  _vcallBtn(Icons.flip_camera_android, Icons.flip_camera_android, false, () {}),
+                  const SizedBox(width: 16),
+                  _vcallEndBtn(),
+                  const SizedBox(width: 16),
+                  _vcallBtn(Icons.chat_bubble_outline, Icons.chat_bubble_outline, false, () {
+                    setState(() => _showChat = !_showChat);
+                  }),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+          if (_showChat) _buildInCallChat(),
+        ],
       ),
     );
   }
-}
 
-class _ConnectingView extends StatelessWidget {
-  final UserModel? user;
-  final bool isCaller;
-  const _ConnectingView({required this.user, required this.isCaller});
+  Widget _vcallBtn(IconData icon, IconData activeIcon, bool isActive, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 52,
+        height: 52,
+        decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), shape: BoxShape.circle),
+        child: Icon(isActive ? activeIcon : icon, color: Colors.white, size: 22),
+      ),
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFF0D1A0D),
-      child: Center(
+  Widget _vcallEndBtn() {
+    return GestureDetector(
+      onTap: _endCall,
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
+        child: const Icon(Icons.call_end, color: Colors.white, size: 24),
+      ),
+    );
+  }
+
+  Widget _buildInCallChat() {
+    return Positioned(
+      right: 0,
+      top: 0,
+      bottom: 0,
+      width: MediaQuery.of(context).size.width * 0.4,
+      child: Container(
+        color: Colors.black87,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 100,
-              height: 100,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.accent, width: 2),
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.white12))),
+              child: Row(
+                children: [
+                  const Text('In-call Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                    onPressed: () => setState(() => _showChat = false),
+                  ),
+                ],
               ),
-              child: ClipOval(
-                child: UserAvatar(
-                  imageUrl: user?.avatarUrl,
-                  name: user?.name ?? '?',
-                  size: 100,
-                ),
+            ),
+            const Expanded(child: Center(child: Text('Chat messages', style: TextStyle(color: Colors.white38)))),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(border: Border(top: BorderSide(color: Colors.white12))),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: TextField(
+                      style: TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Type a message...',
+                        hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                        border: InputBorder.none,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.send, color: AppColors.accent, size: 18),
+                    onPressed: () {},
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              user?.name ?? 'Unknown',
-              style: AppText.heading.copyWith(color: AppColors.white),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isCaller ? 'Calling...' : 'Incoming video call...',
-              style:
-                  AppText.bodyGrey.copyWith(color: Colors.white54),
-            ),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: AppColors.accent),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _VideoCallBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool active;
-
-  const _VideoCallBtn({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.active = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: active
-                  ? AppColors.white
-                  : Colors.white.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon,
-                size: 22,
-                color: active ? AppColors.textDark : AppColors.white),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(label,
-            style: AppText.custom(
-                fontSize: 10,
-                color: Colors.white54)),
-      ],
     );
   }
 }
